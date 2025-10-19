@@ -1,2 +1,44 @@
 # AppShield
 Python script that analyzes an .ipa file and checks for malware
+
+# Features
+
+- Reads app entitlements and detects debuggable applications (`get-task-allow`)
+- Flags keychain access groups
+- Identifies private Apple entitlements
+- Flags root-level entitlements (practically useless)
+- Detect entitlements for VPN & network access
+- Detects entitlements that may allow sandbox escaping or abuse
+
+# Binary & File Analysis
+
+- Detects Mach-O binaries in a .ipa
+- Computes SHA-256 encrypted hashes of main binaries for verification or duplication detection
+- Detects large binaries
+- Flags executables, scripts or suspicious binaries
+- Detects scripts or binaries that may execute arbitary code
+
+
+# Risk Scoring
+
+- Colour-coded for low, moderate & high-risk
+
+
+# The Rarity of iOS Viruses
+
+One thing you should understand about iOS is that it is extremely difficult to obtain a persistent malware on your device.
+
+By malware, something that can harm your device or 'brick' it. It is possible, but requires running multiple exploits. Most of these exploits exist on older iOS versions ( < iOS 16.6.1 ). 
+
+This doesn't mean disclosed exploits exist on iOS versions above. Although the chances of finding one in the wild is rare, you should still be careful.
+
+Now, talking about some of the features, entitlement checking is useful in some cases. This is only useful if:
+
+- AMFI/Coretrust Bypass. Arbitary entitlements are permitted if bypassed.
+- TrollStore Users. Again, arbitary entitlements are permitted (except for 3).
+- Users that are jailbroken.
+
+**Do not trust this tool solely.** It was not created for professional virus detection. It was only made as a basic app analysis.
+
+This python script is decent for ipa analysis, but you may recieve false positives, especially on TrollStore applications.
+
