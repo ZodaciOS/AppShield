@@ -42,7 +42,7 @@ Now, talking about some of the features, entitlement checking is useful in some 
 
 # Entitlement Limitations
 
-Even if we flag an entitlement, it may not even matter.
+Even if we flag an entitlement, it may not even matter. iOS will verify the app entitlements ensuring it matches with the provisioning profile. 
 
 The type of certificate depends on the entitlement. With the 3 types of certificates, **App Store, Developer & Enterprise**, enterprise has the least entitlement support. 
 
