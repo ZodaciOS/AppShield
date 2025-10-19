@@ -40,5 +40,13 @@ Now, talking about some of the features, entitlement checking is useful in some 
 
 **Do not trust this tool solely.** It was not created for professional virus detection. It was only made as a basic app analysis.
 
+# Entitlement Limitations
+
+Even if we flag an entitlement, it may not even matter.
+
+The type of certificate depends on the entitlement. With the 3 types of certificates, **App Store, Developer & Enterprise**, enterprise has the least entitlement support. 
+
+If you are signing with a enterprise certificate, VPN's and other select entitlements **will not work.**
+
 This python script is decent for ipa analysis, but you may recieve false positives, especially on TrollStore applications.
 
