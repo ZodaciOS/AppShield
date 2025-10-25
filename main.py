@@ -168,7 +168,7 @@ class Analyzer:
                 
                 self.details["app_path"] = app_path
                 app_name = os.path.basename(app_path)
-                app_prefix = os.path.join("Payload", app_name)
+                app_prefix = f"Payload/{app_name}/"
 
                 info = {}
                 info_plist_path = os.path.join(app_path, "Info.plist")
@@ -278,10 +278,13 @@ class Analyzer:
                     if not zinfo.filename.startswith(app_prefix) or zinfo.is_dir():
                         continue
                     
-                    rel_path = os.path.relpath(zinfo.filename, app_prefix)
+                    rel_path = zinfo.filename[len(app_prefix):]
+                    if not rel_path:
+                        continue
+                        
                     self.details["files"].append(rel_path)
 
-                    parts = rel_path.split(os.sep)
+                    parts = rel_path.split("/")
                     node = file_tree
                     for part in parts[:-1]:
                         node = node.setdefault(part, {})
@@ -612,7 +615,7 @@ class AppUI:
 
     def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path=""):
         for name, content in sorted(tree_dict.items()):
-            rel_path = os.path.join(current_path, name)
+            rel_path = f"{current_path}/{name}" if current_path else name
             if isinstance(content, dict):
                 node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,))
                 self._populate_file_tree_recursive(node, content, rel_path)
@@ -629,7 +632,7 @@ class AppUI:
         self.file_tree.selection_set(iid)
         
         item = self.file_tree.item(iid)
-        rel_path = item["values"][0]
+        rel_path = item["values"][0].replace("/", os.sep)
         
         if not self.analyzer_details.get("app_path"):
             return
