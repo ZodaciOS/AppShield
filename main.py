@@ -12,6 +12,11 @@ import datetime
 import json
 import re
 from io import BytesIO
+import traceback
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    messagebox.showerror("Missing Dependency", "Pillow library not found.\nPlease run 'pip install pillow' to enable image viewing.")
 
 SUSPICIOUS_ENTITLEMENT_SUBSTRINGS = (
     "com.apple.private",
@@ -456,7 +461,8 @@ class AppUI:
         self.file_tree.pack(fill="both", expand=True)
         
         self.file_tree_menu = tk.Menu(self.root, tearoff=0)
-        self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection)
+        self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
+        self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled")
         self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
         
         self.notebook.add(self.file_tree_tab, text="File Tree")
@@ -639,9 +645,15 @@ class AppUI:
         
         full_path = os.path.join(self.analyzer_details["app_path"], rel_path)
         
+        self.file_tree_menu.entryconfig("Export Selected File", state="disabled")
+        self.file_tree_menu.entryconfig("View File", state="disabled")
+        
         if os.path.isfile(full_path):
             self.selected_file_path = full_path
-            self.file_tree_menu.post(event.x_root, event.y_root)
+            self.file_tree_menu.entryconfig("Export Selected File", state="normal")
+            self.file_tree_menu.entryconfig("View File", state="normal")
+        
+        self.file_tree_menu.post(event.x_root, event.y_root)
 
     def export_file_tree_selection(self):
         if not self.selected_file_path:
@@ -654,6 +666,76 @@ class AppUI:
                 messagebox.showinfo("Export Successful", f"File saved to {save_path}")
             except Exception as e:
                 messagebox.showerror("Export Failed", str(e))
+
+    def view_file_tree_selection(self):
+        if not self.selected_file_path:
+            return
+        
+        path = self.selected_file_path
+        ext = os.path.splitext(path)[1].lower()
+        
+        text_exts = ('.plist', '.xml', '.txt', '.json', '.js', '.sh', '.py', '.rb', '.pl', '.command', '.strings')
+        img_exts = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
+        
+        if ext in text_exts:
+            self.show_text_viewer(path, ext in ('.plist', '.strings'))
+        elif ext in img_exts:
+            self.show_image_viewer(path)
+        else:
+            messagebox.showinfo("Cannot View", "This file type cannot be previewed. Please export it to view.")
+            
+    def show_text_viewer(self, path, is_plist=False):
+        win = tk.Toplevel(self.root)
+        win.title(f"Viewer - {os.path.basename(path)}")
+        win.geometry("700x500")
+        
+        txt_frame = ttk.Frame(win)
+        txt_frame.pack(fill="both", expand=True)
+
+        txt_scroll = ttk.Scrollbar(txt_frame, orient="vertical")
+        txt = tk.Text(txt_frame, wrap="word", bg="#1E1E1E", fg="#D4D4D4",
+                      insertbackground="#D4D4D4", selectbackground="#3A3D41",
+                      font=("Courier", 10), yscrollcommand=txt_scroll.set,
+                      padx=5, pady=5, bd=0, highlightthickness=0)
+        
+        txt_scroll.config(command=txt.yview)
+        txt_scroll.pack(side="right", fill="y")
+        txt.pack(fill="both", expand=True)
+        
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            
+            if is_plist:
+                plist_data = plistlib.loads(data)
+                content = json.dumps(plist_data, indent=2)
+            else:
+                content = data.decode('utf-8')
+        except Exception as e:
+            try:
+                content = data.decode('utf-8')
+            except Exception:
+                content = f"Error reading file as text or plist:\n\n{e}\n\n{traceback.format_exc()}"
+                
+        txt.insert("1.0", content)
+        txt.config(state="disabled")
+
+    def show_image_viewer(self, path):
+        win = tk.Toplevel(self.root)
+        win.title(f"Image - {os.path.basename(path)}")
+        
+        try:
+            img = Image.open(path)
+            photo = ImageTk.PhotoImage(img)
+            
+            label = ttk.Label(win, image=photo)
+            label.image = photo
+            label.pack(padx=10, pady=10)
+            
+            win.geometry(f"{photo.width()+20}x{photo.height()+20}")
+        except Exception as e:
+            win.destroy()
+            messagebox.showerror("Image Error", f"Could not load image: {e}\n\n{traceback.format_exc()}")
 
     def _insert_text(self, text_widget, content):
         text_widget.config(state="normal")
@@ -725,7 +807,7 @@ class AppUI:
             self.score_label.config(text=f"Risk: {label} ({analyzer.score})", foreground=color)
 
         except Exception as e:
-            messagebox.showerror("Analysis Failed", f"An unexpected error occurred: {e}")
+            messagebox.showerror("Analysis Failed", f"An unexpected error occurred: {e}\n\n{traceback.format_exc()}")
 
     def risk_label_color(self, score):
         if score <= 5:
