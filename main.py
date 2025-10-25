@@ -345,6 +345,7 @@ class AppUI:
         
         self.analyzer_details = {}
         self.analyzer_findings = []
+        self.FG = "#E0E0E0"
 
         self.setup_font_and_style()
         
@@ -455,7 +456,7 @@ class AppUI:
             pass
 
         BG = "#2E2E2E"
-        FG = "#E0E0E0"
+        self.FG = "#E0E0E0"
         INACTIVE_BG = "#252526"
         INACTIVE_FG = "#A0A0A0"
         ACCENT = "#007ACC"
@@ -464,7 +465,7 @@ class AppUI:
 
         style.configure(".",
                         background=BG,
-                        foreground=FG,
+                        foreground=self.FG,
                         fieldbackground=INACTIVE_BG,
                         troughcolor=INACTIVE_BG,
                         borderwidth=0,
@@ -472,22 +473,22 @@ class AppUI:
                         font=self.default_font)
 
         style.map(".",
-                  foreground=[('disabled', INACTIVE_FG), ('active', FG)],
+                  foreground=[('disabled', INACTIVE_FG), ('active', self.FG)],
                   background=[('disabled', INACTIVE_BG), ('active', ACCENT)],
                   fieldbackground=[('disabled', INACTIVE_BG)])
 
         style.configure("TFrame", background=BG)
         
-        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TLabel", background=BG, foreground=self.FG)
 
-        style.configure("TButton", padding=6, background=INACTIVE_BG, foreground=FG)
+        style.configure("TButton", padding=6, background=INACTIVE_BG, foreground=self.FG)
         style.map("TButton", background=[('active', SELECT_BG)])
         
         style.configure("Accent.TButton", padding=6, background=ACCENT, foreground="#FFFFFF")
         style.map("Accent.TButton", background=[('active', "#005a9e")])
 
         style.configure("TEntry", padding=5, bordercolor=BORDER, borderwidth=1,
-                        insertcolor=FG)
+                        insertcolor=self.FG)
         style.map("TEntry",
                   bordercolor=[('focus', ACCENT)],
                   fieldbackground=[('focus', INACTIVE_BG)])
@@ -496,14 +497,14 @@ class AppUI:
                         rowheight=25,
                         fieldbackground=INACTIVE_BG,
                         background=INACTIVE_BG,
-                        foreground=FG)
+                        foreground=self.FG)
         style.map("Treeview",
                   background=[('selected', ACCENT)],
                   foreground=[('selected', "#FFFFFF")])
         style.configure("Treeview.Heading",
                         font=(self.default_font[0], self.default_font[1], 'bold'),
                         background=INACTIVE_BG,
-                        foreground=FG,
+                        foreground=self.FG,
                         padding=5)
         style.map("Treeview.Heading", background=[('active', SELECT_BG)])
         
@@ -515,7 +516,7 @@ class AppUI:
                         font=(self.default_font[0], 10))
         style.map("TNotebook.Tab",
                   background=[('selected', BG)],
-                  foreground=[('selected', FG)])
+                  foreground=[('selected', self.FG)])
 
         self.root.option_add("*Font", self.default_font)
         self.root.option_add("*TCombobox*Listbox*Font", self.default_font)
@@ -545,7 +546,7 @@ class AppUI:
         self.ent_tab.config(state="disabled")
         self.strings_tab.config(state="disabled")
         
-        self.score_label.config(text="Risk: N/A", foreground=FG)
+        self.score_label.config(text="Risk: N/A", foreground=self.FG)
         self.analyzer_details = {}
         self.analyzer_findings = []
 
