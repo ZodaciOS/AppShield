@@ -882,7 +882,7 @@ class AppUI:
         
         if not self.warned_about_modifications:
             warn_msg = ("Warning: Modifying files inside an IPA will break its code signature.\n\n"
-                        "The app will likely NOT install or run unless it is properly re-signed with a valid developer certificate.\n\n"
+                        "The app will NOT install or run unless it is properly re-signed with a certificate.\n\n"
                         "Do you want to continue editing anyway?")
             if messagebox.askyesno("Signature Warning", warn_msg, icon='warning'):
                 self.warned_about_modifications = True
@@ -1257,7 +1257,7 @@ class AppUI:
             return
 
         warn_msg = ("Warning: Repackaging this IPA will result in an UNSIGNED application.\n\n"
-                    "It will NOT install on a standard iOS device unless it is properly re-signed using official Apple tools (like Xcode on macOS).\n\n"
+                    "It will not install on a device until signed properly.\n\n"
                     "Do you want to proceed and create an unsigned IPA?")
         if not messagebox.askyesno("Unsigned IPA Warning", warn_msg, icon='warning'):
             return
