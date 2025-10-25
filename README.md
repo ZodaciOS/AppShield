@@ -1,7 +1,16 @@
 # AppShield
 Python script that analyzes an .ipa file and checks for 'malware'
 
-**I CANNOT STRESS THIS ENOUGH! DO NOT RELY ON THIS TOOL!**
+**I CANNOT STRESS THIS ENOUGH! DO NOT RELY ON THIS TOOL! YOU WILL RECEIVE FALSE POSITIVES**
+
+This tool is still in development and I am trying to update the tool more and more. Please, if you encounter any errors or issues, open a issue and explain in detail.
+
+Don't report false positives. I know, you get flagged easily.
+
+# Installation
+
+Tap on "main.py" in this github repo.
+Tap the Download icon. Hovering your mouse over it should say "Download Raw File".
 
 # Features
 
