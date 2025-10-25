@@ -13,6 +13,8 @@ import json
 import re
 from io import BytesIO
 import traceback
+import string
+
 try:
     from PIL import Image, ImageTk
 except ImportError:
@@ -441,6 +443,10 @@ class AppUI:
         tree_scroll.pack(side="right", fill="y")
         self.tree.pack(fill="both", expand=True)
         
+        self.findings_tree_menu = tk.Menu(self.root, tearoff=0)
+        self.findings_tree_menu.add_command(label="Copy Value", command=self.copy_finding_value)
+        self.tree.bind("<Button-3>", self.show_findings_menu)
+        
         self.main_pane.add(left_frame, weight=2)
 
         right_frame = ttk.Frame(self.main_pane, width=600)
@@ -451,6 +457,12 @@ class AppUI:
         self.summary_tab = self.create_text_tab("Summary")
         
         self.file_tree_tab = ttk.Frame(self.notebook, style="TFrame")
+        
+        self.file_search_var = tk.StringVar()
+        self.file_search_var.trace_add("write", self.search_files)
+        search_entry = ttk.Entry(self.file_tree_tab, textvariable=self.file_search_var)
+        search_entry.pack(fill="x", padx=1, pady=2)
+        
         self.file_tree = ttk.Treeview(self.file_tree_tab, columns=("path",), show="tree headings", displaycolumns=())
         self.file_tree.heading("#0", text="File/Directory")
         self.file_tree.column("#0", stretch=True)
@@ -462,6 +474,9 @@ class AppUI:
         
         self.file_tree_menu = tk.Menu(self.root, tearoff=0)
         self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
+        self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled")
+        self.file_tree_menu.add_command(label="View as Hex", command=self.view_file_hex, state="disabled")
+        self.file_tree_menu.add_separator()
         self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled")
         self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
         
@@ -618,15 +633,44 @@ class AppUI:
         self.analyzer_details = {}
         self.analyzer_findings = []
         self.selected_file_path = ""
+        self.file_search_var.set("")
 
-    def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path=""):
+    def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path="", search_term=""):
+        found_match = False
+        search_term = search_term.lower()
+        
         for name, content in sorted(tree_dict.items()):
             rel_path = f"{current_path}/{name}" if current_path else name
+            name_lower = name.lower()
+            
             if isinstance(content, dict):
-                node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,))
-                self._populate_file_tree_recursive(node, content, rel_path)
+                child_node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,))
+                child_matched = self._populate_file_tree_recursive(child_node, content, rel_path, search_term)
+                
+                if child_matched:
+                    found_match = True
+                elif search_term and search_term not in name_lower:
+                    self.file_tree.delete(child_node)
+                
+                if search_term and (search_term in name_lower or child_matched):
+                    self.file_tree.item(child_node, open=True)
+                    found_match = True
+
             else:
-                self.file_tree.insert(parent_node, "end", text=name, values=(rel_path,))
+                if not search_term or search_term in name_lower:
+                    self.file_tree.insert(parent_node, "end", text=name, values=(rel_path,))
+                    found_match = True
+        return found_match
+    
+    def search_files(self, *args):
+        if not self.analyzer_details:
+            return
+        
+        for i in self.file_tree.get_children():
+            self.file_tree.delete(i)
+            
+        search_term = self.file_search_var.get()
+        self._populate_file_tree_recursive("", self.analyzer_details.get("file_tree", {}), search_term=search_term)
 
     def show_file_tree_menu(self, event):
         self.selected_file_path = ""
@@ -647,11 +691,22 @@ class AppUI:
         
         self.file_tree_menu.entryconfig("Export Selected File", state="disabled")
         self.file_tree_menu.entryconfig("View File", state="disabled")
+        self.file_tree_menu.entryconfig("View Strings", state="disabled")
+        self.file_tree_menu.entryconfig("View as Hex", state="disabled")
         
         if os.path.isfile(full_path):
             self.selected_file_path = full_path
             self.file_tree_menu.entryconfig("Export Selected File", state="normal")
-            self.file_tree_menu.entryconfig("View File", state="normal")
+            
+            ext = os.path.splitext(full_path)[1].lower()
+            text_exts = ('.plist', '.xml', '.txt', '.json', '.js', '.sh', '.py', '.rb', '.pl', '.command', '.strings')
+            img_exts = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
+            
+            if ext in text_exts or ext in img_exts:
+                self.file_tree_menu.entryconfig("View File", state="normal")
+            
+            self.file_tree_menu.entryconfig("View Strings", state="normal")
+            self.file_tree_menu.entryconfig("View as Hex", state="normal")
         
         self.file_tree_menu.post(event.x_root, event.y_root)
 
@@ -678,13 +733,13 @@ class AppUI:
         img_exts = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
         
         if ext in text_exts:
-            self.show_text_viewer(path, ext in ('.plist', '.strings'))
+            self.show_text_viewer(path, is_plist=ext in ('.plist', '.strings'))
         elif ext in img_exts:
             self.show_image_viewer(path)
         else:
             messagebox.showinfo("Cannot View", "This file type cannot be previewed. Please export it to view.")
             
-    def show_text_viewer(self, path, is_plist=False):
+    def show_text_viewer(self, path, is_plist=False, content_override=None):
         win = tk.Toplevel(self.root)
         win.title(f"Viewer - {os.path.basename(path)}")
         win.geometry("700x500")
@@ -702,15 +757,19 @@ class AppUI:
         txt_scroll.pack(side="right", fill="y")
         txt.pack(fill="both", expand=True)
         
+        content = ""
         try:
-            with open(path, "rb") as f:
-                data = f.read()
-            
-            if is_plist:
-                plist_data = plistlib.loads(data)
-                content = json.dumps(plist_data, indent=2)
+            if content_override:
+                content = content_override
             else:
-                content = data.decode('utf-8')
+                with open(path, "rb") as f:
+                    data = f.read()
+                
+                if is_plist:
+                    plist_data = plistlib.loads(data)
+                    content = json.dumps(plist_data, indent=2)
+                else:
+                    content = data.decode('utf-8')
         except Exception as e:
             try:
                 content = data.decode('utf-8')
@@ -736,6 +795,87 @@ class AppUI:
         except Exception as e:
             win.destroy()
             messagebox.showerror("Image Error", f"Could not load image: {e}\n\n{traceback.format_exc()}")
+            
+    def _get_file_strings(self, data):
+        min_len = 4
+        strings = ""
+        current = ""
+        printable_chars = set(bytes(string.printable, 'ascii'))
+
+        for byte in data:
+            if byte in printable_chars:
+                current += chr(byte)
+            else:
+                if len(current) >= min_len:
+                    strings += current + "\n"
+                current = ""
+        if len(current) >= min_len:
+            strings += current
+        return strings
+        
+    def _format_hex(self, data):
+        out = ""
+        for i in range(0, len(data), 16):
+            chunk = data[i:i+16]
+            
+            offset = f"{i:08x}"
+            hex_part = " ".join(f"{b:02x}" for b in chunk)
+            hex_part = hex_part.ljust(16 * 3 - 1)
+            
+            ascii_part = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
+            
+            out += f"{offset} | {hex_part} | {ascii_part}\n"
+        return out
+        
+    def view_file_strings(self):
+        if not self.selected_file_path:
+            return
+        
+        try:
+            with open(self.selected_file_path, "rb") as f:
+                data = f.read()
+            strings = self._get_file_strings(data)
+            if not strings:
+                strings = "--- No printable strings found ---"
+            self.show_text_viewer(self.selected_file_path, content_override=strings)
+        except Exception as e:
+            messagebox.showerror("Error Reading Strings", str(e))
+
+    def view_file_hex(self):
+        if not self.selected_file_path:
+            return
+        
+        try:
+            with open(self.selected_file_path, "rb") as f:
+                data = f.read(1024 * 1024)
+            
+            hex_content = self._format_hex(data)
+            
+            if len(data) == 1024 * 1024:
+                hex_content += f"\n--- Truncated at 1MB ---"
+                
+            self.show_text_viewer(self.selected_file_path, content_override=hex_content)
+        except Exception as e:
+            messagebox.showerror("Error Reading File", str(e))
+            
+    def show_findings_menu(self, event):
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        
+        self.tree.focus(iid)
+        self.tree.selection_set(iid)
+        self.findings_tree_menu.post(event.x_root, event.y_root)
+
+    def copy_finding_value(self):
+        try:
+            selected_item = self.tree.selection()[0]
+            value = self.tree.item(selected_item, "values")[1]
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            messagebox.showinfo("Copied", f"Copied to clipboard:\n{value}", parent=self.root)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not copy value: {e}", parent=self.root)
 
     def _insert_text(self, text_widget, content):
         text_widget.config(state="normal")
@@ -785,7 +925,7 @@ class AppUI:
             
             for i in self.file_tree.get_children():
                 self.file_tree.delete(i)
-            self._populate_file_tree_recursive("", analyzer.details.get("file_tree", {}))
+            self._populate_file_tree_recursive("", analyzer.details.get("file_tree", {}), search_term="")
 
             self._insert_text(self.info_tab, json.dumps(info, indent=2))
             
@@ -873,7 +1013,7 @@ class AppUI:
         title = "Credits"
         message = (
             "ZodaciOS - Developer\n\n"
-            "https://github.com/ZodaciOS - My github account\n"
+            "httpsIn-App-Purchase://github.com/ZodaciOS - My github account\n"
             "https://github.com/ZodaciOS/AppShield - the repo of this script\n\n"
             "Please follow me & star the repo. Thanks!"
         )
