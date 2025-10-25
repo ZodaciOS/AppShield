@@ -395,6 +395,7 @@ class AppUI:
         self.analyzer_details = {}
         self.analyzer_findings = []
         self.FG = "#E0E0E0"
+        self.selected_file_path = ""
 
         self.setup_font_and_style()
         
@@ -441,15 +442,19 @@ class AppUI:
         self.summary_tab = self.create_text_tab("Summary")
         
         self.file_tree_tab = ttk.Frame(self.notebook, style="TFrame")
-        self.file_tree = ttk.Treeview(self.file_tree_tab, columns=("size",), show="tree headings")
+        self.file_tree = ttk.Treeview(self.file_tree_tab, columns=("path",), show="tree headings", displaycolumns=())
         self.file_tree.heading("#0", text="File/Directory")
-        self.file_tree.heading("size", text="Info")
-        self.file_tree.column("size", width=100, stretch=False)
+        self.file_tree.column("#0", stretch=True)
         
         file_tree_scroll = ttk.Scrollbar(self.file_tree_tab, orient="vertical", command=self.file_tree.yview)
         self.file_tree.configure(yscrollcommand=file_tree_scroll.set)
         file_tree_scroll.pack(side="right", fill="y")
         self.file_tree.pack(fill="both", expand=True)
+        
+        self.file_tree_menu = tk.Menu(self.root, tearoff=0)
+        self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection)
+        self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
+        
         self.notebook.add(self.file_tree_tab, text="File Tree")
         
         self.info_tab = self.create_text_tab("Info.plist")
@@ -577,7 +582,8 @@ class AppUI:
 
     def clear_results(self):
         self.tree.delete(*self.tree.get_children())
-        self.file_tree.delete(*self.file_tree.get_children())
+        for i in self.file_tree.get_children():
+            self.file_tree.delete(i)
         
         self.summary_tab.config(state="normal")
         self.info_tab.config(state="normal")
@@ -597,14 +603,49 @@ class AppUI:
         self.score_label.config(text="Risk: N/A", foreground=self.FG)
         self.analyzer_details = {}
         self.analyzer_findings = []
+        self.selected_file_path = ""
 
-    def _populate_file_tree(self, parent_node, tree_dict):
+    def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path=""):
         for name, content in sorted(tree_dict.items()):
+            rel_path = os.path.join(current_path, name)
             if isinstance(content, dict):
-                node = self.file_tree.insert(parent_node, "end", text=name, open=False)
-                self._populate_file_tree(node, content)
+                node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,))
+                self._populate_file_tree_recursive(node, content, rel_path)
             else:
-                self.file_tree.insert(parent_node, "end", text=name, values=("File",))
+                self.file_tree.insert(parent_node, "end", text=name, values=(rel_path,))
+
+    def show_file_tree_menu(self, event):
+        self.selected_file_path = ""
+        iid = self.file_tree.identify_row(event.y)
+        if not iid:
+            return
+        
+        self.file_tree.focus(iid)
+        self.file_tree.selection_set(iid)
+        
+        item = self.file_tree.item(iid)
+        rel_path = item["values"][0]
+        
+        if not self.analyzer_details.get("app_path"):
+            return
+        
+        full_path = os.path.join(self.analyzer_details["app_path"], rel_path)
+        
+        if os.path.isfile(full_path):
+            self.selected_file_path = full_path
+            self.file_tree_menu.post(event.x_root, event.y_root)
+
+    def export_file_tree_selection(self):
+        if not self.selected_file_path:
+            return
+        
+        save_path = filedialog.asksaveasfilename(initialfile=os.path.basename(self.selected_file_path))
+        if save_path:
+            try:
+                shutil.copy(self.selected_file_path, save_path)
+                messagebox.showinfo("Export Successful", f"File saved to {save_path}")
+            except Exception as e:
+                messagebox.showerror("Export Failed", str(e))
 
     def _insert_text(self, text_widget, content):
         text_widget.config(state="normal")
@@ -651,7 +692,9 @@ class AppUI:
             )
             self._insert_text(self.summary_tab, summary_text)
             
-            self._populate_file_tree("", analyzer.details.get("file_tree", {}))
+            for i in self.file_tree.get_children():
+                self.file_tree.delete(i)
+            self._populate_file_tree_recursive("", analyzer.details.get("file_tree", {}))
 
             self._insert_text(self.info_tab, json.dumps(info, indent=2))
             
