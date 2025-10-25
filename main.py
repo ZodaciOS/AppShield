@@ -396,6 +396,7 @@ class AppUI:
         self.analyzer_findings = []
         self.FG = "#E0E0E0"
         self.selected_file_path = ""
+        self.current_analyzer = None
 
         self.setup_font_and_style()
         
@@ -581,6 +582,10 @@ class AppUI:
             self.clear_results()
 
     def clear_results(self):
+        if self.current_analyzer:
+            self.current_analyzer.cleanup()
+            self.current_analyzer = None
+        
         self.tree.delete(*self.tree.get_children())
         for i in self.file_tree.get_children():
             self.file_tree.delete(i)
@@ -666,6 +671,7 @@ class AppUI:
             analyzer = Analyzer(p)
             analyzer.run()
 
+            self.current_analyzer = analyzer
             self.analyzer_details = analyzer.details
             self.analyzer_findings = analyzer.findings
             
@@ -717,9 +723,6 @@ class AppUI:
 
         except Exception as e:
             messagebox.showerror("Analysis Failed", f"An unexpected error occurred: {e}")
-        finally:
-            if 'analyzer' in locals():
-                analyzer.cleanup()
 
     def risk_label_color(self, score):
         if score <= 5:
