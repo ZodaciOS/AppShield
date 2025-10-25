@@ -1,6 +1,8 @@
 # AppShield
 Python script that analyzes an .ipa file and checks for 'malware'
 
+**I CANNOT STRESS THIS ENOUGH! DO NOT RELY ON THIS TOOL!**
+
 # Features
 
 - Reads app entitlements and detects debuggable applications (`get-task-allow`)
