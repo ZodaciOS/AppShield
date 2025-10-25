@@ -905,7 +905,7 @@ class AppUI:
 
     def repackage_ipa(self):
         if not self.current_analyzer or not self.analyzer_details.get("app_path"): messagebox.showerror("Error", "Please analyze an IPA before attempting to repackage."); return
-        warn_msg = ("Warning: Repackaging this IPA will result in an UNSIGNED application.\n\nIt will NOT install on a standard iOS device unless it is properly re-signed using official Apple tools (like Xcode on macOS).\n\nDo you want to proceed and create an unsigned IPA?")
+        warn_msg = ("Warning: Repackaging this IPA will result in an UNSIGNED application.\n\nIt will NOT install on a standard iOS device unless it is properly re-signed.\n\nDo you want to proceed and create an unsigned IPA?")
         if not messagebox.askyesno("Unsigned IPA Warning", warn_msg, icon='warning'): return
         save_path = filedialog.asksaveasfilename(defaultextension=".ipa", initialfile=f"modified_{os.path.basename(self.path_var.get())}", filetypes=[("IPA files", "*.ipa")])
         if not save_path: return
