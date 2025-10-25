@@ -1,6 +1,6 @@
-# dont use its beta
+# do not use this it is beta
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
+from tkinter import filedialog, ttk, messagebox, Menu
 import tkinter.font as tkfont
 import zipfile
 import os
@@ -15,6 +15,7 @@ import re
 from io import BytesIO
 import traceback
 import string
+import webbrowser # Added for opening URLs
 
 try:
     from PIL import Image, ImageTk
@@ -511,9 +512,10 @@ class AppUI:
         self.warned_about_modifications = False
 
         self.setup_font_and_style()
+        self.create_menu() # Create the menu bar
         
         top_frame = ttk.Frame(self.root, style="TFrame")
-        top_frame.pack(fill="x", padx=12, pady=(12, 8))
+        top_frame.pack(fill="x", padx=12, pady=(5, 8)) # Adjusted padding for menu
         
         ttk.Label(top_frame, text="IPA File:", style="TLabel").pack(side="left")
         
@@ -598,10 +600,27 @@ class AppUI:
         bottom_frame = ttk.Frame(self.root, style="TFrame")
         bottom_frame.pack(fill="x", padx=12, pady=8)
         
-        ttk.Button(bottom_frame, text="Credits", command=self.show_credits).pack(side="left")
-        ttk.Button(bottom_frame, text="Repack IPA...", command=self.repackage_ipa).pack(side="left", padx=10)
+        # Removed Credits and Repack buttons here
         ttk.Button(bottom_frame, text="Export Details (JSON)", command=self.export_json).pack(side="right")
         ttk.Button(bottom_frame, text="Save Findings (TXT)", command=self.save_findings).pack(side="right", padx=10)
+
+    def create_menu(self):
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+
+        # File Menu
+        file_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Repack IPA...", command=self.repackage_ipa)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+
+        # Help Menu
+        help_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Credits", command=self.show_credits)
+        help_menu.add_command(label="View GitHub", command=lambda: webbrowser.open("https://github.com/ZodaciOS"))
+        help_menu.add_command(label="View Source", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield"))
 
     def create_text_tab(self, name):
         frame = ttk.Frame(self.notebook, style="TFrame")
@@ -700,6 +719,13 @@ class AppUI:
         style.map("TNotebook.Tab",
                   background=[('selected', BG)],
                   foreground=[('selected', self.FG)])
+
+        # Menu styling (can be limited depending on OS)
+        self.root.option_add('*Menu.background', INACTIVE_BG)
+        self.root.option_add('*Menu.foreground', self.FG)
+        self.root.option_add('*Menu.activeBackground', SELECT_BG)
+        self.root.option_add('*Menu.activeForeground', self.FG)
+        self.root.option_add('*Menu.font', self.default_font)
 
         self.root.option_add("*Font", self.default_font)
         self.root.option_add("*TCombobox*Listbox*Font", self.default_font)
@@ -911,12 +937,9 @@ class AppUI:
                     except Exception as plist_err:
                         content = f"Error parsing as Plist:\n{plist_err}\n\n--- Raw Data ---\n{data.decode('utf-8', errors='replace')}"
                 else:
-                    content = data.decode('utf-8')
+                    content = data.decode('utf-8', errors='replace') # More robust decoding
         except Exception as e:
-            try:
-                content = data.decode('utf-8', errors='replace')
-            except Exception:
-                content = f"Error reading file as text or plist:\n\n{e}\n\n{traceback.format_exc()}"
+            content = f"Error reading file:\n\n{e}\n\n{traceback.format_exc()}"
                 
         txt.insert("1.0", content)
         txt.config(state="disabled")
@@ -955,17 +978,8 @@ class AppUI:
         content = ""
         encoding = 'utf-8'
         try:
-            with open(path, "r", encoding=encoding) as f:
+            with open(path, "r", encoding=encoding, errors='replace') as f: # Use errors='replace' for robustness
                 content = f.read()
-        except UnicodeDecodeError:
-             try:
-                 encoding = 'latin-1'
-                 with open(path, "r", encoding=encoding) as f:
-                     content = f.read()
-             except Exception as e:
-                 messagebox.showerror("Read Error", f"Could not read file {os.path.basename(path)} as text:\n{e}", parent=win)
-                 win.destroy()
-                 return
         except Exception as e:
             messagebox.showerror("Read Error", f"Could not read file {os.path.basename(path)}:\n{e}", parent=win)
             win.destroy()
@@ -976,7 +990,7 @@ class AppUI:
         def save_changes():
             try:
                 new_content = txt.get("1.0", "end-1c")
-                with open(path, "w", encoding=encoding) as f:
+                with open(path, "w", encoding=encoding, errors='replace') as f:
                     f.write(new_content)
                 messagebox.showinfo("Saved", f"{os.path.basename(path)} saved successfully.", parent=win)
                 win.destroy()
@@ -1054,7 +1068,7 @@ class AppUI:
         
         try:
             with open(self.selected_file_path, "rb") as f:
-                data = f.read(1024 * 1024)
+                data = f.read(1024 * 1024) # Limit hex view to 1MB
             
             hex_content = self._format_hex(data)
             
@@ -1259,16 +1273,18 @@ class AppUI:
         try:
             with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as new_zip:
                 for root, dirs, files in os.walk(payload_dir):
+                    # Use forward slashes for archive names, as per zip standard
+                    arc_root = os.path.relpath(root, self.current_analyzer.tmpdir).replace(os.sep, '/')
                     for file in files:
                         full_path = os.path.join(root, file)
-                        arcname = os.path.relpath(full_path, self.current_analyzer.tmpdir)
+                        arcname = f"{arc_root}/{file}"
                         new_zip.write(full_path, arcname)
                         
-                # Check for other common top-level files/dirs (like iTunesMetadata.plist) and add if they exist
+                # Add other top-level items if they exist
                 for item in os.listdir(self.current_analyzer.tmpdir):
                      item_path = os.path.join(self.current_analyzer.tmpdir, item)
                      if item != "Payload" and os.path.isfile(item_path):
-                         new_zip.write(item_path, item)
+                         new_zip.write(item_path, item) # Write top-level files directly
 
             messagebox.showinfo("Repackage Successful", f"Unsigned IPA saved to:\n{save_path}")
         except Exception as e:
