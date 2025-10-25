@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
+from tkinter import filedialog, ttk, messagebox, Menu
 import tkinter.font as tkfont
 import zipfile
 import os
@@ -14,6 +14,7 @@ import re
 from io import BytesIO
 import traceback
 import string
+import webbrowser # Added for opening URLs
 
 try:
     from PIL import Image, ImageTk
@@ -61,13 +62,18 @@ HIGH_RISK_KEYS = (
 JAILBREAK_STRINGS = (
     b"Cydia", b"Sileo", b"Zebra", b"unc0ver", b"Taurine", b"checkra1n",
     b"Frida", b"cycript", b"Cycript", b"Substrate", b"substrate",
-    b"MSHookFunction", b"/bin/bash", b"/usr/sbin/sshd", b"/etc/apt"
+    b"MSHookFunction", b"/bin/bash", b"/usr/sbin/sshd", b"/etc/apt",
+    b"/Applications/Cydia.app", b"/Library/MobileSubstrate/MobileSubstrate.dylib",
+    b"/usr/libexec/sftp-server", b"/usr/bin/sshd", b"/var/cache/apt/",
+    b"/var/lib/apt", b"/var/lib/cydia", b"/var/log/syslog", b"/private/var/stash",
+    b"/private/var/tmp/cydia.log", b"/private/var/lib/apt/", b"/Applications/FakeCarrier.app"
 )
 
 SUSPICIOUS_IMPORTS = (
     b"_performTask", b"task_for_pid", b"performSelector",
     b"dlopen", b"dlsym", b"ptrace", b"sysctl", b"PT_DENY_ATTACH",
-    b"isatty", b"getppid", b"fork", b"exit"
+    b"isatty", b"getppid", b"fork", b"exit", b"syscall",
+    b"KERN_PROC", b"P_TRACED", b"sysctlbyname"
 )
 
 WEAK_HASH_STRINGS = (
@@ -78,10 +84,20 @@ SUSPICIOUS_DDNS = (
     b".ddns.net", b".no-ip.com", b".duckdns.org", b".dynu.com", b".strangled.net", b".hopto.org"
 )
 
+TRACKING_LIBS = (
+    b"FirebaseAnalytics", b"AppsFlyer", b"Adjust", b"Mixpanel", b"Flurry",
+    b"GoogleAnalytics", b"Segment", b"Amplitude", b"BranchMetrics"
+)
+
+CRYPTO_LIBS = (
+    b"CommonCrypto", b"RNCryptor", b"SQLCipher", b"OpenSSL", b"libsodium"
+)
+
 SCRIPT_EXTS = (".sh", ".pl", ".py", ".rb", ".js", ".command")
 
 URL_REGEX = re.compile(rb'https?://[^\s"\'<>]+', re.IGNORECASE)
 IP_REGEX = re.compile(rb'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+AWS_KEY_REGEX = re.compile(rb'AKIA[0-9A-Z]{16}')
 
 def read_plist_bytes(data):
     try:
@@ -132,6 +148,9 @@ class Analyzer:
             "suspicious_imports": [],
             "weak_hashes": [],
             "suspicious_ddns": [],
+            "tracking_libs": [],
+            "crypto_libs": [],
+            "hardcoded_aws_keys": [],
             "injected_dylibs": [],
             "private_frameworks": [],
         }
@@ -163,6 +182,17 @@ class Analyzer:
             for s_hash in WEAK_HASH_STRINGS:
                 if s_hash in data:
                     self.details["weak_hashes"].append(s_hash.decode(errors="ignore"))
+            
+            for tracker in TRACKING_LIBS:
+                if tracker in data:
+                    self.details["tracking_libs"].append(tracker.decode(errors="ignore"))
+                    
+            for crypto in CRYPTO_LIBS:
+                if crypto in data:
+                    self.details["crypto_libs"].append(crypto.decode(errors="ignore"))
+            
+            for aws_key in AWS_KEY_REGEX.findall(data):
+                self.details["hardcoded_aws_keys"].append(aws_key.decode(errors="ignore"))
 
         except Exception as e:
             print(f"Error scanning file {filename}: {e}")
@@ -208,9 +238,15 @@ class Analyzer:
                         
                         schemes = info.get("LSApplicationQueriesSchemes", [])
                         if len(schemes) > 50:
-                            self._add_finding("Privacy", f"Excessive URL Schemes ({len(schemes)}). May be fingerprinting.", 3)
+                            self._add_finding("Privacy", f"Excessive URL Schemes Queries ({len(schemes)}). Fingerprinting?", 3)
                         elif len(schemes) > 0:
-                            self._add_finding("Info", f"URL schemes queried: {len(schemes)}", 1)
+                            self._add_finding("Info", f"URL schemes queried: {len(schemes)}", 0)
+
+                        url_types = info.get("CFBundleURLTypes", [])
+                        if len(url_types) > 10:
+                            self._add_finding("Suspicious", f"Excessive Custom URL Schemes ({len(url_types)} registered).", 2)
+                        elif len(url_types) > 0:
+                             self._add_finding("Info", f"Custom URL schemes registered: {len(url_types)}", 0)
 
                         if info.get("UIBackgroundModes"):
                             modes = ", ".join(info.get("UIBackgroundModes", []))
@@ -218,14 +254,20 @@ class Analyzer:
 
                         perms = [k for k in info.keys() if k.endswith("UsageDescription")]
                         if len(perms) > 7:
-                            self._add_finding("Privacy", f"Excessive Permissions ({len(perms)}).", 3)
+                            self._add_finding("Privacy", f"Excessive Permissions requested ({len(perms)}).", 3)
                         for p in perms:
                             self._add_finding("Permission", f"{p}", 0)
                         
                         exec_name = info.get("CFBundleExecutable", "")
                         app_name_base = app_name.replace(".app", "")
                         if exec_name and app_name_base != exec_name:
-                            self._add_finding("Suspicious", f"Executable name mismatch: '{exec_name}' vs '{app_name_base}'", 3)
+                            self._add_finding("Tampering", f"Executable name mismatch: '{exec_name}' vs '{app_name_base}'", 3)
+                            
+                        min_os = info.get("MinimumOSVersion", "99.0")
+                        try:
+                            if float(min_os.split('.')[0]) < 13:
+                                self._add_finding("Security", f"Outdated MinimumOSVersion: {min_os}", 1)
+                        except: pass
                             
                     except Exception as e:
                         self._add_finding("Warning", f"Info.plist parse error: {e}", 2)
@@ -288,7 +330,7 @@ class Analyzer:
                         if "*" not in prov_app_id and "." in prov_app_id:
                             prov_app_id_suffix = prov_app_id.split(".", 1)[1]
                             if prov_app_id_suffix != info_bundle_id:
-                                self._add_finding("Warning", f"ID mismatch: Plist='{info_bundle_id}' vs Provision='{prov_app_id_suffix}'", 3)
+                                self._add_finding("Tampering", f"ID mismatch: Plist='{info_bundle_id}' vs Provision='{prov_app_id_suffix}'", 3)
 
                 else:
                     self._add_finding("Entitlements", "No entitlements found", 2)
@@ -301,6 +343,9 @@ class Analyzer:
                 found_dylibs = []
                 main_bin_data = b""
                 main_bin_name = self.details["info"].get("CFBundleExecutable", None)
+                has_swiftui = False
+                has_watchkit = False
+                has_code_resources = False
 
                 for zinfo in z.infolist():
                     if not zinfo.filename.startswith(app_prefix) or zinfo.is_dir():
@@ -330,10 +375,18 @@ class Analyzer:
                         script_like.append(rel_path)
                     
                     if lower == "embedded.provisionprofile":
-                        self._add_finding("Suspicious", "Found 'embedded.provisionprofile' (often from repackaging)", 2)
+                        self._add_finding("Tampering", "Found 'embedded.provisionprofile' (often from repackaging)", 2)
                     
+                    if lower == "_codesignature/coderesources":
+                        has_code_resources = True
+                    
+                    if "swiftui.framework" in lower:
+                        has_swiftui = True
+                    if "watchkit.framework" in lower or rel_path.startswith("Watch/"):
+                        has_watchkit = True
+                        
                     if lower.endswith(".dylib"):
-                        self._add_finding("Binary", f"Bundled Dylib: {rel_path}", 2)
+                        self._add_finding("Binary", f"Bundled Dylib: {rel_path}", 0)
                         found_dylibs.append(os.path.basename(rel_path).encode())
 
                     if any(s in lower for s in ("su", "sudo", "dropbear", "sshd")):
@@ -344,6 +397,9 @@ class Analyzer:
                     except Exception:
                         raw = b""
                     
+                    if b"UIPasteboard" in raw:
+                         self.details.setdefault("clipboard_access_files", set()).add(rel_path)
+
                     if looks_macho(raw):
                         macho_count += 1
                         if main_bin_name and rel_path == main_bin_name:
@@ -352,6 +408,9 @@ class Analyzer:
                             self._scan_file_content(raw, rel_path)
 
                 self.details["file_tree"] = file_tree
+                
+                if self.details.get("clipboard_access_files"):
+                    self._add_finding("Privacy", f"Potential clipboard access ({len(self.details['clipboard_access_files'])} files)", 1)
 
                 if exec_like:
                     self._add_finding("Files", f"{len(exec_like)} executable files", min(len(exec_like)//5, 3))
@@ -361,6 +420,12 @@ class Analyzer:
                     self._add_finding("Files", f"{len(script_like)} scripts found", min(len(script_like)//3, 3))
                 if macho_count:
                     self._add_finding("Files", f"{macho_count} Mach-O files", 0)
+                if not has_code_resources:
+                     self._add_finding("Tampering", "_CodeSignature/CodeResources not found", 2)
+                if has_swiftui:
+                    self._add_finding("Info", "Uses SwiftUI framework", 0)
+                if has_watchkit:
+                    self._add_finding("Info", "Includes WatchKit components", 0)
 
                 if main_bin_data and found_dylibs:
                     for dylib_name in found_dylibs:
@@ -397,19 +462,28 @@ class Analyzer:
                 self.details["suspicious_imports"] = sorted(list(set(self.details["suspicious_imports"])))
                 self.details["weak_hashes"] = sorted(list(set(self.details["weak_hashes"])))
                 self.details["suspicious_ddns"] = sorted(list(set(self.details["suspicious_ddns"])))
+                self.details["tracking_libs"] = sorted(list(set(self.details["tracking_libs"])))
+                self.details["crypto_libs"] = sorted(list(set(self.details["crypto_libs"])))
+                self.details["hardcoded_aws_keys"] = sorted(list(set(self.details["hardcoded_aws_keys"])))
 
                 if self.details["extracted_urls"]:
-                    self._add_finding("Network", f"{len(self.details['extracted_urls'])} URLs found", 1)
+                    self._add_finding("Network", f"{len(self.details['extracted_urls'])} URLs found", 0)
                 if self.details["extracted_ips"]:
-                    self._add_finding("Network", f"{len(self.details['extracted_ips'])} IPs found", 1)
+                    self._add_finding("Network", f"{len(self.details['extracted_ips'])} IPs found", 0)
                 if self.details["suspicious_ddns"]:
                     self._add_finding("Network", f"Found {len(self.details['suspicious_ddns'])} suspicious DDNS domains (C2?)", 4)
                 if self.details["jailbreak_strings"]:
-                    self._add_finding("Suspicious", f"{len(self.details['jailbreak_strings'])} jailbreak strings", 3)
+                    self._add_finding("Suspicious", f"{len(self.details['jailbreak_strings'])} jailbreak strings/paths", 3)
                 if self.details["suspicious_imports"]:
                     self._add_finding("Suspicious", f"{len(self.details['suspicious_imports'])} suspicious imports", 3)
                 if self.details["weak_hashes"]:
                     self._add_finding("Security", f"{len(self.details['weak_hashes'])} weak hashes (MD5/SHA1)", 1)
+                if self.details["tracking_libs"]:
+                    self._add_finding("Privacy", f"{len(self.details['tracking_libs'])} known tracking libraries detected", 2)
+                if self.details["crypto_libs"]:
+                    self._add_finding("Info", f"{len(self.details['crypto_libs'])} encryption libraries detected", 0)
+                if self.details["hardcoded_aws_keys"]:
+                    self._add_finding("Security", f"{len(self.details['hardcoded_aws_keys'])} potential hardcoded AWS keys found", 4)
                 
                 self.details["scanned_at"] = datetime.datetime.utcnow().isoformat() + "Z"
                 self.details["risk_score"] = self.score
@@ -434,11 +508,13 @@ class AppUI:
         self.FG = "#E0E0E0"
         self.selected_file_path = ""
         self.current_analyzer = None
+        self.warned_about_modifications = False
 
         self.setup_font_and_style()
+        self.create_menu() # Create the menu bar
         
         top_frame = ttk.Frame(self.root, style="TFrame")
-        top_frame.pack(fill="x", padx=12, pady=(12, 8))
+        top_frame.pack(fill="x", padx=12, pady=(5, 8)) # Adjusted padding for menu
         
         ttk.Label(top_frame, text="IPA File:", style="TLabel").pack(side="left")
         
@@ -501,6 +577,7 @@ class AppUI:
         
         self.file_tree_menu = tk.Menu(self.root, tearoff=0)
         self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
+        self.file_tree_menu.add_command(label="Edit File", command=self.edit_file_tree_selection, state="disabled")
         self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled")
         self.file_tree_menu.add_command(label="View as Hex", command=self.view_file_hex, state="disabled")
         self.file_tree_menu.add_command(label="Get SHA256 Hash", command=self.get_file_hash, state="disabled")
@@ -522,9 +599,27 @@ class AppUI:
         bottom_frame = ttk.Frame(self.root, style="TFrame")
         bottom_frame.pack(fill="x", padx=12, pady=8)
         
-        ttk.Button(bottom_frame, text="Credits", command=self.show_credits).pack(side="left")
+        # Removed Credits and Repack buttons here
         ttk.Button(bottom_frame, text="Export Details (JSON)", command=self.export_json).pack(side="right")
         ttk.Button(bottom_frame, text="Save Findings (TXT)", command=self.save_findings).pack(side="right", padx=10)
+
+    def create_menu(self):
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+
+        # File Menu
+        file_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Repack IPA...", command=self.repackage_ipa)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+
+        # Help Menu
+        help_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Credits", command=self.show_credits)
+        help_menu.add_command(label="View GitHub", command=lambda: webbrowser.open("https://github.com/ZodaciOS"))
+        help_menu.add_command(label="View Source", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield"))
 
     def create_text_tab(self, name):
         frame = ttk.Frame(self.notebook, style="TFrame")
@@ -624,6 +719,13 @@ class AppUI:
                   background=[('selected', BG)],
                   foreground=[('selected', self.FG)])
 
+        # Menu styling (can be limited depending on OS)
+        self.root.option_add('*Menu.background', INACTIVE_BG)
+        self.root.option_add('*Menu.foreground', self.FG)
+        self.root.option_add('*Menu.activeBackground', SELECT_BG)
+        self.root.option_add('*Menu.activeForeground', self.FG)
+        self.root.option_add('*Menu.font', self.default_font)
+
         self.root.option_add("*Font", self.default_font)
         self.root.option_add("*TCombobox*Listbox*Font", self.default_font)
 
@@ -662,6 +764,7 @@ class AppUI:
         self.analyzer_findings = []
         self.selected_file_path = ""
         self.file_search_var.set("")
+        self.warned_about_modifications = False
 
     def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path="", search_term=""):
         found_match = False
@@ -719,6 +822,7 @@ class AppUI:
         
         self.file_tree_menu.entryconfig("Export Selected File", state="disabled")
         self.file_tree_menu.entryconfig("View File", state="disabled")
+        self.file_tree_menu.entryconfig("Edit File", state="disabled")
         self.file_tree_menu.entryconfig("View Strings", state="disabled")
         self.file_tree_menu.entryconfig("View as Hex", state="disabled")
         self.file_tree_menu.entryconfig("Get SHA256 Hash", state="disabled")
@@ -733,6 +837,8 @@ class AppUI:
             
             if ext in text_exts or ext in img_exts:
                 self.file_tree_menu.entryconfig("View File", state="normal")
+            if ext in text_exts:
+                 self.file_tree_menu.entryconfig("Edit File", state="normal")
             
             self.file_tree_menu.entryconfig("View Strings", state="normal")
             self.file_tree_menu.entryconfig("View as Hex", state="normal")
@@ -768,6 +874,28 @@ class AppUI:
             self.show_image_viewer(path)
         else:
             messagebox.showinfo("Cannot View", "This file type cannot be previewed. Please export it or use 'View as Hex'/'View Strings'.")
+
+    def edit_file_tree_selection(self):
+        if not self.selected_file_path:
+            return
+        
+        if not self.warned_about_modifications:
+            warn_msg = ("Warning: Modifying files inside an IPA will break its code signature.\n\n"
+                        "The app will likely NOT install or run unless it is properly re-signed with a certificate.\n\n"
+                        "Do you want to continue editing anyway?")
+            if messagebox.askyesno("Signature Warning", warn_msg, icon='warning'):
+                self.warned_about_modifications = True
+            else:
+                return
+
+        path = self.selected_file_path
+        ext = os.path.splitext(path)[1].lower()
+        text_exts = ('.plist', '.xml', '.txt', '.json', '.js', '.sh', '.py', '.rb', '.pl', '.command', '.strings')
+
+        if ext in text_exts:
+            self.show_text_editor(path)
+        else:
+             messagebox.showinfo("Cannot Edit", "Only text-based files can be edited.")
             
     def show_text_viewer(self, path, is_plist=False, content_override=None, title_prefix="Viewer"):
         win = tk.Toplevel(self.root)
@@ -775,19 +903,25 @@ class AppUI:
         win.geometry("700x500")
         
         txt_frame = ttk.Frame(win)
-        txt_frame.pack(fill="both", expand=True)
+        txt_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        txt_scroll = ttk.Scrollbar(txt_frame, orient="vertical")
-        txt = tk.Text(txt_frame, wrap="word", bg="#1E1E1E", fg="#D4D4D4",
+        txt_scroll_y = ttk.Scrollbar(txt_frame, orient="vertical")
+        txt_scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal")
+        txt = tk.Text(txt_frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4",
                       insertbackground="#D4D4D4", selectbackground="#3A3D41",
-                      font=("Courier", 10), yscrollcommand=txt_scroll.set,
+                      font=("Courier", 10), 
+                      yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set,
                       padx=5, pady=5, bd=0, highlightthickness=0)
         
-        txt_scroll.config(command=txt.yview)
-        txt_scroll.pack(side="right", fill="y")
+        txt_scroll_y.config(command=txt.yview)
+        txt_scroll_x.config(command=txt.xview)
+        
+        txt_scroll_y.pack(side="right", fill="y")
+        txt_scroll_x.pack(side="bottom", fill="x")
         txt.pack(fill="both", expand=True)
         
         content = ""
+        data = b""
         try:
             if content_override:
                 content = content_override
@@ -796,26 +930,74 @@ class AppUI:
                     data = f.read()
                 
                 if is_plist:
-                    plist_data = plistlib.loads(data)
-                    content = json.dumps(plist_data, indent=2)
+                    try:
+                        plist_data = plistlib.loads(data)
+                        content = json.dumps(plist_data, indent=2)
+                    except Exception as plist_err:
+                        content = f"Error parsing as Plist:\n{plist_err}\n\n--- Raw Data ---\n{data.decode('utf-8', errors='replace')}"
                 else:
-                    content = data.decode('utf-8')
+                    content = data.decode('utf-8', errors='replace') # More robust decoding
         except Exception as e:
-            try:
-                content = data.decode('utf-8')
-            except Exception:
-                content = f"Error reading file as text or plist:\n\n{e}\n\n{traceback.format_exc()}"
+            content = f"Error reading file:\n\n{e}\n\n{traceback.format_exc()}"
                 
         txt.insert("1.0", content)
         txt.config(state="disabled")
         
         def copy_to_clipboard():
             self.root.clipboard_clear()
-            self.root.clipboard_append(txt.get("1.0", "end"))
+            self.root.clipboard_append(txt.get("1.0", "end-1c")) # Avoid copying trailing newline
             messagebox.showinfo("Copied", "Contents copied to clipboard.", parent=win)
         
         copy_button = ttk.Button(win, text="Copy to Clipboard", command=copy_to_clipboard, style="TButton")
-        copy_button.pack(pady=5)
+        copy_button.pack(pady=(0, 5))
+
+    def show_text_editor(self, path):
+        win = tk.Toplevel(self.root)
+        win.title(f"Editor - {os.path.basename(path)}")
+        win.geometry("700x500")
+        
+        txt_frame = ttk.Frame(win)
+        txt_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        txt_scroll_y = ttk.Scrollbar(txt_frame, orient="vertical")
+        txt_scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal")
+        txt = tk.Text(txt_frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4",
+                      insertbackground="#D4D4D4", selectbackground="#3A3D41",
+                      font=("Courier", 10), undo=True,
+                      yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set,
+                      padx=5, pady=5, bd=0, highlightthickness=0)
+        
+        txt_scroll_y.config(command=txt.yview)
+        txt_scroll_x.config(command=txt.xview)
+        
+        txt_scroll_y.pack(side="right", fill="y")
+        txt_scroll_x.pack(side="bottom", fill="x")
+        txt.pack(fill="both", expand=True)
+        
+        content = ""
+        encoding = 'utf-8'
+        try:
+            with open(path, "r", encoding=encoding, errors='replace') as f: # Use errors='replace' for robustness
+                content = f.read()
+        except Exception as e:
+            messagebox.showerror("Read Error", f"Could not read file {os.path.basename(path)}:\n{e}", parent=win)
+            win.destroy()
+            return
+            
+        txt.insert("1.0", content)
+        
+        def save_changes():
+            try:
+                new_content = txt.get("1.0", "end-1c")
+                with open(path, "w", encoding=encoding, errors='replace') as f:
+                    f.write(new_content)
+                messagebox.showinfo("Saved", f"{os.path.basename(path)} saved successfully.", parent=win)
+                win.destroy()
+            except Exception as e:
+                messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=win)
+
+        save_button = ttk.Button(win, text="Save Changes", command=save_changes, style="Accent.TButton")
+        save_button.pack(pady=(0, 5))
 
     def show_image_viewer(self, path):
         win = tk.Toplevel(self.root)
@@ -885,7 +1067,7 @@ class AppUI:
         
         try:
             with open(self.selected_file_path, "rb") as f:
-                data = f.read(1024 * 1024)
+                data = f.read(1024 * 1024) # Limit hex view to 1MB
             
             hex_content = self._format_hex(data)
             
@@ -964,11 +1146,13 @@ class AppUI:
                 f"Entitlements Source: {analyzer.details.get('entitlements_source', 'N/A')}\n"
                 f"Total Files in .app: {len(analyzer.details.get('files', []))}\n"
                 f"Detected Injected Dylibs: {len(analyzer.details.get('injected_dylibs', []))}\n"
+                f"Known Tracking Libs: {len(analyzer.details.get('tracking_libs', []))}\n"
                 f"Suspicious Imports: {len(analyzer.details.get('suspicious_imports', []))}\n"
                 f"Jailbreak Strings: {len(analyzer.details.get('jailbreak_strings', []))}\n"
                 f"Found URLs: {len(analyzer.details.get('extracted_urls', []))}\n"
                 f"Found IPs: {len(analyzer.details.get('extracted_ips', []))}\n"
                 f"Found DDNS Domains: {len(analyzer.details.get('suspicious_ddns', []))}\n"
+                f"Hardcoded AWS Keys: {len(analyzer.details.get('hardcoded_aws_keys', []))}\n"
             )
             self._insert_text(self.summary_tab, summary_text)
             
@@ -982,8 +1166,10 @@ class AppUI:
             
             strings_text = "--- SUSPICIOUS IMPORTS ---\n"
             strings_text += "\n".join(analyzer.details.get("suspicious_imports", ["None"]))
-            strings_text += "\n\n--- JAILBREAK STRINGS ---\n"
+            strings_text += "\n\n--- JAILBREAK STRINGS / PATHS ---\n"
             strings_text += "\n".join(analyzer.details.get("jailbreak_strings", ["None"]))
+            strings_text += "\n\n--- KNOWN TRACKING LIBRARIES ---\n"
+            strings_text += "\n".join(analyzer.details.get("tracking_libs", ["None"]))
             strings_text += "\n\n--- SUSPICIOUS DDNS (C2?) ---\n"
             strings_text += "\n".join(analyzer.details.get("suspicious_ddns", ["None"]))
             strings_text += "\n\n--- EXTRACTED URLs ---\n"
@@ -992,6 +1178,10 @@ class AppUI:
             strings_text += "\n".join(analyzer.details.get("extracted_ips", ["None"]))
             strings_text += "\n\n--- WEAK HASHES (MD5/SHA1) ---\n"
             strings_text += "\n".join(analyzer.details.get("weak_hashes", ["None"]))
+            strings_text += "\n\n--- ENCRYPTION LIBRARIES ---\n"
+            strings_text += "\n".join(analyzer.details.get("crypto_libs", ["None"]))
+            strings_text += "\n\n--- POTENTIAL HARDCODED AWS KEYS ---\n"
+            strings_text += "\n".join(analyzer.details.get("hardcoded_aws_keys", ["None"]))
             self._insert_text(self.strings_tab, strings_text)
             
             label, color = self.risk_label_color(analyzer.score)
@@ -1059,6 +1249,46 @@ class AppUI:
             messagebox.showinfo("Exported", f"Full analysis report exported to {p}")
         except Exception as e:
             messagebox.showerror("Export Failed", f"Could not export JSON: {e}")
+
+    def repackage_ipa(self):
+        if not self.current_analyzer or not self.analyzer_details.get("app_path"):
+            messagebox.showerror("Error", "Please analyze an IPA before attempting to repackage.")
+            return
+
+        warn_msg = ("Warning: Repackaging this IPA will result in an UNSIGNED application.\n\n"
+                    "It will NOT install on a standard iOS device unless it is properly re-signed.\n\n"
+                    "Do you want to proceed and create an unsigned IPA?")
+        if not messagebox.askyesno("Unsigned IPA Warning", warn_msg, icon='warning'):
+            return
+
+        save_path = filedialog.asksaveasfilename(defaultextension=".ipa",
+                                                 initialfile=f"modified_{os.path.basename(self.path_var.get())}",
+                                                 filetypes=[("IPA files", "*.ipa")])
+        if not save_path:
+            return
+
+        payload_dir = os.path.join(self.current_analyzer.tmpdir, "Payload")
+        
+        try:
+            with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as new_zip:
+                for root, dirs, files in os.walk(payload_dir):
+                    # Use forward slashes for archive names, as per zip standard
+                    arc_root = os.path.relpath(root, self.current_analyzer.tmpdir).replace(os.sep, '/')
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        arcname = f"{arc_root}/{file}"
+                        new_zip.write(full_path, arcname)
+                        
+                # Add other top-level items if they exist
+                for item in os.listdir(self.current_analyzer.tmpdir):
+                     item_path = os.path.join(self.current_analyzer.tmpdir, item)
+                     if item != "Payload" and os.path.isfile(item_path):
+                         new_zip.write(item_path, item) # Write top-level files directly
+
+            messagebox.showinfo("Repackage Successful", f"Unsigned IPA saved to:\n{save_path}")
+        except Exception as e:
+            messagebox.showerror("Repackage Failed", f"Could not create IPA file:\n{e}\n\n{traceback.format_exc()}")
+
 
     def show_credits(self):
         title = "Credits"
