@@ -1,5 +1,5 @@
 # AppShield
-Python script that analyzes an .ipa file and checks for malware
+Python script that analyzes an .ipa file and checks for 'malware'
 
 # Features
 
@@ -18,10 +18,31 @@ Python script that analyzes an .ipa file and checks for malware
 - Flags executables, scripts or suspicious binaries
 - Detects scripts or binaries that may execute arbitary code
 
+# File Explorer
+
+- View .plist files
+- Built in hex-viewer
+- File exporter
+- Get SHA256 of a file
+
+**And a lot of other small features I won't cover.**
 
 # Risk Scoring
 
-- Colour-coded for low, moderate & high-risk
+- Colour-coded for low, moderate & high-risk and a number
+
+# Dependencies Required
+
+AppShield requires Pillow in order to view image files. If you aren't planning on viewing images, it is not required.
+
+`pip install pillow` - Run in Terminal/Command Prompt
+
+# To-dos
+
+- Port to a Swift app
+- Add ipa signing with ZSign backend
+- Improve detection (as .dylib's are flagged)
+- Add more flags
 
 
 # The Rarity of iOS Viruses
