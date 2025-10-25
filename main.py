@@ -51,23 +51,25 @@ HIGH_RISK_KEYS = (
     "com.apple.security.cs.debugger",
 )
 
-SUSPICIOUS_STRINGS = (
+JAILBREAK_STRINGS = (
     b"Cydia", b"Sileo", b"Zebra", b"unc0ver", b"Taurine", b"checkra1n",
     b"Frida", b"cycript", b"Cycript", b"Substrate", b"substrate",
-    b"MSHookFunction", b"_performTask", b"task_for_pid", b"performSelector"
+    b"MSHookFunction", b"/bin/bash", b"/usr/sbin/sshd", b"/etc/apt"
 )
 
-PRIVATE_FRAMEWORKS = (
-    "AppPrediction", "CoreDuet", "CoreFollowUp", "CoreHandwriting",
-    "CoreRecognition", "CoreRoutine", "CoreSuggestions", "CoreUtils",
-    "FTServices", "IMCore", "MobileCoreServices", "TelephonyUtilities",
-    "SpringBoardServices", "UserManagement",
+SUSPICIOUS_IMPORTS = (
+    b"_performTask", b"task_for_pid", b"performSelector",
+    b"dlopen", b"dlsym", b"ptrace", b"sysctl", b"PT_DENY_ATTACH"
 )
 
-EXECUTABLE_EXTS = (".dylib", ".so", ".framework", "")
+WEAK_HASH_STRINGS = (
+    b"MD5", b"SHA1", b"CC_MD5", b"CC_SHA1"
+)
+
 SCRIPT_EXTS = (".sh", ".pl", ".py", ".rb", ".js", ".command")
 
 URL_REGEX = re.compile(rb'https?://[^\s"\'<>]+', re.IGNORECASE)
+IP_REGEX = re.compile(rb'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 
 def read_plist_bytes(data):
     try:
@@ -113,7 +115,11 @@ class Analyzer:
             "files": [],
             "file_tree": {},
             "extracted_urls": [],
-            "suspicious_strings": [],
+            "extracted_ips": [],
+            "jailbreak_strings": [],
+            "suspicious_imports": [],
+            "weak_hashes": [],
+            "injected_dylibs": [],
             "private_frameworks": [],
         }
 
@@ -123,13 +129,24 @@ class Analyzer:
 
     def _scan_file_content(self, data, filename):
         try:
-            urls = URL_REGEX.findall(data)
-            for url in urls:
+            for url in URL_REGEX.findall(data):
                 self.details["extracted_urls"].append(url.decode(errors="ignore"))
+            
+            for ip in IP_REGEX.findall(data):
+                self.details["extracted_ips"].append(ip.decode(errors="ignore"))
 
-            for s_str in SUSPICIOUS_STRINGS:
+            for s_str in JAILBREAK_STRINGS:
                 if s_str in data:
-                    self.details["suspicious_strings"].append(s_str.decode(errors="ignore"))
+                    self.details["jailbreak_strings"].append(s_str.decode(errors="ignore"))
+            
+            for s_imp in SUSPICIOUS_IMPORTS:
+                if s_imp in data:
+                    self.details["suspicious_imports"].append(s_imp.decode(errors="ignore"))
+            
+            for s_hash in WEAK_HASH_STRINGS:
+                if s_hash in data:
+                    self.details["weak_hashes"].append(s_hash.decode(errors="ignore"))
+
         except Exception as e:
             print(f"Error scanning file {filename}: {e}")
 
@@ -153,6 +170,7 @@ class Analyzer:
                 app_name = os.path.basename(app_path)
                 app_prefix = os.path.join("Payload", app_name)
 
+                info = {}
                 info_plist_path = os.path.join(app_path, "Info.plist")
                 if os.path.exists(info_plist_path):
                     try:
@@ -235,6 +253,15 @@ class Analyzer:
                         
                         if "application-identifier" in k and isinstance(v, str) and "*" in v:
                             self._add_finding("Provision", f"Wildcard App ID: {v}", 3)
+                    
+                    if info:
+                        prov_app_id = ent.get("application-identifier", "prov_missing")
+                        info_bundle_id = info.get("CFBundleIdentifier", "info_missing")
+                        if "*" not in prov_app_id and "." in prov_app_id:
+                            prov_app_id_suffix = prov_app_id.split(".", 1)[1]
+                            if prov_app_id_suffix != info_bundle_id:
+                                self._add_finding("Warning", f"ID mismatch: Plist='{info_bundle_id}' vs Provision='{prov_app_id_suffix}'", 3)
+
                 else:
                     self._add_finding("Entitlements", "No entitlements found", 2)
 
@@ -243,6 +270,9 @@ class Analyzer:
                 script_like = []
                 macho_count = 0
                 file_tree = {}
+                found_dylibs = []
+                main_bin_data = b""
+                main_bin_name = self.details["info"].get("CFBundleExecutable", None)
 
                 for zinfo in z.infolist():
                     if not zinfo.filename.startswith(app_prefix) or zinfo.is_dir():
@@ -268,6 +298,10 @@ class Analyzer:
                     if lower.endswith(SCRIPT_EXTS):
                         script_like.append(rel_path)
                     
+                    if lower.endswith(".dylib"):
+                        self._add_finding("Binary", f"Bundled Dylib: {rel_path}", 2)
+                        found_dylibs.append(os.path.basename(rel_path).encode())
+
                     if any(s in lower for s in ("su", "sudo", "dropbear", "sshd")):
                         su_like.append(rel_path)
 
@@ -278,10 +312,10 @@ class Analyzer:
                     
                     if looks_macho(raw):
                         macho_count += 1
-                        self._scan_file_content(raw, rel_path)
-                    
-                    if rel_path.endswith(".js"):
-                        self._scan_file_content(raw, rel_path)
+                        if main_bin_name and rel_path == main_bin_name:
+                            main_bin_data = raw
+                        else:
+                            self._scan_file_content(raw, rel_path)
 
                 self.details["file_tree"] = file_tree
 
@@ -294,6 +328,26 @@ class Analyzer:
                 if macho_count:
                     self._add_finding("Files", f"{macho_count} Mach-O files", 0)
 
+                if main_bin_data and found_dylibs:
+                    for dylib_name in found_dylibs:
+                        if dylib_name in main_bin_data:
+                            decoded_name = dylib_name.decode(errors="ignore")
+                            self._add_finding("Injection", f"Main binary references '{decoded_name}'", 5)
+                            self.details["injected_dylibs"].append(decoded_name)
+                    self._scan_file_content(main_bin_data, main_bin_name)
+                
+                if main_bin_data:
+                    h = hashlib.sha256(main_bin_data).hexdigest()
+                    self._add_finding("Main Binary", f"SHA256: {h}", 0)
+                    size = len(main_bin_data)
+                    if size > 50 * 1024 * 1024:
+                        self._add_finding("Binary Size", f"{size//1024//1024} MB (large binary)", 2)
+                elif main_bin_name:
+                    self._add_finding("Warning", f"Main binary '{main_bin_name}' in Plist but not found in zip", 3)
+                else:
+                    self._add_finding("Binary", "Main executable not found", 2)
+
+
                 fwdir_path = os.path.join(app_path, "Frameworks")
                 if os.path.exists(fwdir_path):
                     for item in os.listdir(fwdir_path):
@@ -303,27 +357,22 @@ class Analyzer:
                                 self._add_finding("Binary", f"Bundled Private Framework: {item}", 4)
                                 self.details["private_frameworks"].append(item)
 
-                main_bin_name = self.details["info"].get("CFBundleExecutable", None)
-                main_bin_path = None
-                if main_bin_name:
-                    main_bin_path = os.path.join(app_path, main_bin_name)
-
-                if main_bin_path and os.path.exists(main_bin_path):
-                    h = sha256_of_file(main_bin_path)
-                    self._add_finding("Main Binary", f"SHA256: {h}", 0)
-                    size = os.path.getsize(main_bin_path)
-                    if size > 50 * 1024 * 1024:
-                        self._add_finding("Binary Size", f"{size//1024//1024} MB (large binary)", 2)
-                else:
-                    self._add_finding("Binary", "Main executable not found", 2)
-
                 self.details["extracted_urls"] = sorted(list(set(self.details["extracted_urls"])))
-                self.details["suspicious_strings"] = sorted(list(set(self.details["suspicious_strings"])))
-                
+                self.details["extracted_ips"] = sorted(list(set(self.details["extracted_ips"])))
+                self.details["jailbreak_strings"] = sorted(list(set(self.details["jailbreak_strings"])))
+                self.details["suspicious_imports"] = sorted(list(set(self.details["suspicious_imports"])))
+                self.details["weak_hashes"] = sorted(list(set(self.details["weak_hashes"])))
+
                 if self.details["extracted_urls"]:
                     self._add_finding("Network", f"{len(self.details['extracted_urls'])} URLs found", 1)
-                if self.details["suspicious_strings"]:
-                    self._add_finding("Binary", f"{len(self.details['suspicious_strings'])} suspicious strings", 3)
+                if self.details["extracted_ips"]:
+                    self._add_finding("Network", f"{len(self.details['extracted_ips'])} IPs found", 1)
+                if self.details["jailbreak_strings"]:
+                    self._add_finding("Suspicious", f"{len(self.details['jailbreak_strings'])} jailbreak strings", 3)
+                if self.details["suspicious_imports"]:
+                    self._add_finding("Suspicious", f"{len(self.details['suspicious_imports'])} suspicious imports", 3)
+                if self.details["weak_hashes"]:
+                    self._add_finding("Security", f"{len(self.details['weak_hashes'])} weak hashes (MD5/SHA1)", 1)
                 
                 self.details["scanned_at"] = datetime.datetime.utcnow().isoformat() + "Z"
                 self.details["risk_score"] = self.score
@@ -456,7 +505,6 @@ class AppUI:
             pass
 
         BG = "#2E2E2E"
-        self.FG = "#E0E0E0"
         INACTIVE_BG = "#252526"
         INACTIVE_FG = "#A0A0A0"
         ACCENT = "#007ACC"
@@ -595,9 +643,11 @@ class AppUI:
                 f"--- Key Details ---\n"
                 f"Entitlements Source: {analyzer.details.get('entitlements_source', 'N/A')}\n"
                 f"Total Files in .app: {len(analyzer.details.get('files', []))}\n"
-                f"Mach-O Files: {sum(1 for f in analyzer.findings if f[0] == 'Files' and 'Mach-O' in f[1])}\n"
-                f"Suspicious Strings: {len(analyzer.details.get('suspicious_strings', []))}\n"
+                f"Detected Injected Dylibs: {len(analyzer.details.get('injected_dylibs', []))}\n"
+                f"Suspicious Imports: {len(analyzer.details.get('suspicious_imports', []))}\n"
+                f"Jailbreak Strings: {len(analyzer.details.get('jailbreak_strings', []))}\n"
                 f"Found URLs: {len(analyzer.details.get('extracted_urls', []))}\n"
+                f"Found IPs: {len(analyzer.details.get('extracted_ips', []))}\n"
             )
             self._insert_text(self.summary_tab, summary_text)
             
@@ -607,10 +657,16 @@ class AppUI:
             
             self._insert_text(self.ent_tab, json.dumps(ent, indent=2))
             
-            strings_text = "--- SUSPICIOUS STRINGS ---\n"
-            strings_text += "\n".join(analyzer.details.get("suspicious_strings", ["None"]))
+            strings_text = "--- SUSPICIOUS IMPORTS ---\n"
+            strings_text += "\n".join(analyzer.details.get("suspicious_imports", ["None"]))
+            strings_text += "\n\n--- JAILBREAK STRINGS ---\n"
+            strings_text += "\n".join(analyzer.details.get("jailbreak_strings", ["None"]))
             strings_text += "\n\n--- EXTRACTED URLs ---\n"
             strings_text += "\n".join(analyzer.details.get("extracted_urls", ["None"]))
+            strings_text += "\n\n--- EXTRACTED IPs ---\n"
+            strings_text += "\n".join(analyzer.details.get("extracted_ips", ["None"]))
+            strings_text += "\n\n--- WEAK HASHES (MD5/SHA1) ---\n"
+            strings_text += "\n".join(analyzer.details.get("weak_hashes", ["None"]))
             self._insert_text(self.strings_tab, strings_text)
             
             label, color = self.risk_label_color(analyzer.score)
