@@ -9,7 +9,7 @@ Don't report false positives. I know, you get flagged easily.
 
 # Installation
 
-Ensure Python is installed (scroll down for [Required Dependencies](#dependencies required))
+Ensure Python is installed (scroll down for [Required Dependencies](#dependencies-required))
 Tap on "main.py" in this github repo.
 
 Tap the Download icon. Hovering your mouse over it should say "Download Raw File".
