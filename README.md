@@ -8,7 +8,7 @@ This tool is still in development and I am trying to update the tool more and mo
 Don't report false positives. I know, you get flagged easily.
 
 **Showcase**
-![Screenshot of the AppShield UI](Capture.png)
+![Screenshot of the AppShield UI](Capture.PNG)
 
 
 # Installation
