@@ -66,11 +66,16 @@ JAILBREAK_STRINGS = (
 
 SUSPICIOUS_IMPORTS = (
     b"_performTask", b"task_for_pid", b"performSelector",
-    b"dlopen", b"dlsym", b"ptrace", b"sysctl", b"PT_DENY_ATTACH"
+    b"dlopen", b"dlsym", b"ptrace", b"sysctl", b"PT_DENY_ATTACH",
+    b"isatty", b"getppid", b"fork", b"exit"
 )
 
 WEAK_HASH_STRINGS = (
     b"MD5", b"SHA1", b"CC_MD5", b"CC_SHA1"
+)
+
+SUSPICIOUS_DDNS = (
+    b".ddns.net", b".no-ip.com", b".duckdns.org", b".dynu.com", b".strangled.net", b".hopto.org"
 )
 
 SCRIPT_EXTS = (".sh", ".pl", ".py", ".rb", ".js", ".command")
@@ -126,6 +131,7 @@ class Analyzer:
             "jailbreak_strings": [],
             "suspicious_imports": [],
             "weak_hashes": [],
+            "suspicious_ddns": [],
             "injected_dylibs": [],
             "private_frameworks": [],
         }
@@ -137,7 +143,11 @@ class Analyzer:
     def _scan_file_content(self, data, filename):
         try:
             for url in URL_REGEX.findall(data):
-                self.details["extracted_urls"].append(url.decode(errors="ignore"))
+                url_str = url.decode(errors="ignore")
+                self.details["extracted_urls"].append(url_str)
+                for ddns in SUSPICIOUS_DDNS:
+                    if ddns in url:
+                        self.details["suspicious_ddns"].append(url_str)
             
             for ip in IP_REGEX.findall(data):
                 self.details["extracted_ips"].append(ip.decode(errors="ignore"))
@@ -196,16 +206,27 @@ class Analyzer:
                         if ats and ats.get("NSAllowsArbitraryLoads"):
                             self._add_finding("Network", "NSAllowsArbitraryLoads = true (ATS disabled)", 2)
                         
-                        if info.get("LSApplicationQueriesSchemes"):
-                            self._add_finding("Info", f"URL schemes queried: {len(info.get('LSApplicationQueriesSchemes'))}", 1)
+                        schemes = info.get("LSApplicationQueriesSchemes", [])
+                        if len(schemes) > 50:
+                            self._add_finding("Privacy", f"Excessive URL Schemes ({len(schemes)}). May be fingerprinting.", 3)
+                        elif len(schemes) > 0:
+                            self._add_finding("Info", f"URL schemes queried: {len(schemes)}", 1)
 
                         if info.get("UIBackgroundModes"):
                             modes = ", ".join(info.get("UIBackgroundModes", []))
                             self._add_finding("Privacy", f"Background Modes: {modes}", 2)
 
                         perms = [k for k in info.keys() if k.endswith("UsageDescription")]
+                        if len(perms) > 7:
+                            self._add_finding("Privacy", f"Excessive Permissions ({len(perms)}).", 3)
                         for p in perms:
-                            self._add_finding("Permission", f"{p}: {info.get(p)}", 0)
+                            self._add_finding("Permission", f"{p}", 0)
+                        
+                        exec_name = info.get("CFBundleExecutable", "")
+                        app_name_base = app_name.replace(".app", "")
+                        if exec_name and app_name_base != exec_name:
+                            self._add_finding("Suspicious", f"Executable name mismatch: '{exec_name}' vs '{app_name_base}'", 3)
+                            
                     except Exception as e:
                         self._add_finding("Warning", f"Info.plist parse error: {e}", 2)
                 else:
@@ -308,6 +329,9 @@ class Analyzer:
                     if lower.endswith(SCRIPT_EXTS):
                         script_like.append(rel_path)
                     
+                    if lower == "embedded.provisionprofile":
+                        self._add_finding("Suspicious", "Found 'embedded.provisionprofile' (often from repackaging)", 2)
+                    
                     if lower.endswith(".dylib"):
                         self._add_finding("Binary", f"Bundled Dylib: {rel_path}", 2)
                         found_dylibs.append(os.path.basename(rel_path).encode())
@@ -372,11 +396,14 @@ class Analyzer:
                 self.details["jailbreak_strings"] = sorted(list(set(self.details["jailbreak_strings"])))
                 self.details["suspicious_imports"] = sorted(list(set(self.details["suspicious_imports"])))
                 self.details["weak_hashes"] = sorted(list(set(self.details["weak_hashes"])))
+                self.details["suspicious_ddns"] = sorted(list(set(self.details["suspicious_ddns"])))
 
                 if self.details["extracted_urls"]:
                     self._add_finding("Network", f"{len(self.details['extracted_urls'])} URLs found", 1)
                 if self.details["extracted_ips"]:
                     self._add_finding("Network", f"{len(self.details['extracted_ips'])} IPs found", 1)
+                if self.details["suspicious_ddns"]:
+                    self._add_finding("Network", f"Found {len(self.details['suspicious_ddns'])} suspicious DDNS domains (C2?)", 4)
                 if self.details["jailbreak_strings"]:
                     self._add_finding("Suspicious", f"{len(self.details['jailbreak_strings'])} jailbreak strings", 3)
                 if self.details["suspicious_imports"]:
@@ -476,6 +503,7 @@ class AppUI:
         self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
         self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled")
         self.file_tree_menu.add_command(label="View as Hex", command=self.view_file_hex, state="disabled")
+        self.file_tree_menu.add_command(label="Get SHA256 Hash", command=self.get_file_hash, state="disabled")
         self.file_tree_menu.add_separator()
         self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled")
         self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
@@ -693,6 +721,7 @@ class AppUI:
         self.file_tree_menu.entryconfig("View File", state="disabled")
         self.file_tree_menu.entryconfig("View Strings", state="disabled")
         self.file_tree_menu.entryconfig("View as Hex", state="disabled")
+        self.file_tree_menu.entryconfig("Get SHA256 Hash", state="disabled")
         
         if os.path.isfile(full_path):
             self.selected_file_path = full_path
@@ -707,6 +736,7 @@ class AppUI:
             
             self.file_tree_menu.entryconfig("View Strings", state="normal")
             self.file_tree_menu.entryconfig("View as Hex", state="normal")
+            self.file_tree_menu.entryconfig("Get SHA256 Hash", state="normal")
         
         self.file_tree_menu.post(event.x_root, event.y_root)
 
@@ -737,11 +767,11 @@ class AppUI:
         elif ext in img_exts:
             self.show_image_viewer(path)
         else:
-            messagebox.showinfo("Cannot View", "This file type cannot be previewed. Please export it to view.")
+            messagebox.showinfo("Cannot View", "This file type cannot be previewed. Please export it or use 'View as Hex'/'View Strings'.")
             
-    def show_text_viewer(self, path, is_plist=False, content_override=None):
+    def show_text_viewer(self, path, is_plist=False, content_override=None, title_prefix="Viewer"):
         win = tk.Toplevel(self.root)
-        win.title(f"Viewer - {os.path.basename(path)}")
+        win.title(f"{title_prefix} - {os.path.basename(path)}")
         win.geometry("700x500")
         
         txt_frame = ttk.Frame(win)
@@ -778,6 +808,14 @@ class AppUI:
                 
         txt.insert("1.0", content)
         txt.config(state="disabled")
+        
+        def copy_to_clipboard():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(txt.get("1.0", "end"))
+            messagebox.showinfo("Copied", "Contents copied to clipboard.", parent=win)
+        
+        copy_button = ttk.Button(win, text="Copy to Clipboard", command=copy_to_clipboard, style="TButton")
+        copy_button.pack(pady=5)
 
     def show_image_viewer(self, path):
         win = tk.Toplevel(self.root)
@@ -837,7 +875,7 @@ class AppUI:
             strings = self._get_file_strings(data)
             if not strings:
                 strings = "--- No printable strings found ---"
-            self.show_text_viewer(self.selected_file_path, content_override=strings)
+            self.show_text_viewer(self.selected_file_path, content_override=strings, title_prefix="Strings")
         except Exception as e:
             messagebox.showerror("Error Reading Strings", str(e))
 
@@ -854,9 +892,20 @@ class AppUI:
             if len(data) == 1024 * 1024:
                 hex_content += f"\n--- Truncated at 1MB ---"
                 
-            self.show_text_viewer(self.selected_file_path, content_override=hex_content)
+            self.show_text_viewer(self.selected_file_path, content_override=hex_content, title_prefix="Hex")
         except Exception as e:
             messagebox.showerror("Error Reading File", str(e))
+            
+    def get_file_hash(self):
+        if not self.selected_file_path:
+            return
+        
+        try:
+            h = sha256_of_file(self.selected_file_path)
+            content = f"File: {os.path.basename(self.selected_file_path)}\n\nSHA256: {h}"
+            self.show_text_viewer(self.selected_file_path, content_override=content, title_prefix="SHA256 Hash")
+        except Exception as e:
+            messagebox.showerror("Error Hashing File", str(e))
             
     def show_findings_menu(self, event):
         iid = self.tree.identify_row(event.y)
@@ -873,7 +922,6 @@ class AppUI:
             value = self.tree.item(selected_item, "values")[1]
             self.root.clipboard_clear()
             self.root.clipboard_append(value)
-            messagebox.showinfo("Copied", f"Copied to clipboard:\n{value}", parent=self.root)
         except Exception as e:
             messagebox.showerror("Error", f"Could not copy value: {e}", parent=self.root)
 
@@ -920,6 +968,7 @@ class AppUI:
                 f"Jailbreak Strings: {len(analyzer.details.get('jailbreak_strings', []))}\n"
                 f"Found URLs: {len(analyzer.details.get('extracted_urls', []))}\n"
                 f"Found IPs: {len(analyzer.details.get('extracted_ips', []))}\n"
+                f"Found DDNS Domains: {len(analyzer.details.get('suspicious_ddns', []))}\n"
             )
             self._insert_text(self.summary_tab, summary_text)
             
@@ -935,6 +984,8 @@ class AppUI:
             strings_text += "\n".join(analyzer.details.get("suspicious_imports", ["None"]))
             strings_text += "\n\n--- JAILBREAK STRINGS ---\n"
             strings_text += "\n".join(analyzer.details.get("jailbreak_strings", ["None"]))
+            strings_text += "\n\n--- SUSPICIOUS DDNS (C2?) ---\n"
+            strings_text += "\n".join(analyzer.details.get("suspicious_ddns", ["None"]))
             strings_text += "\n\n--- EXTRACTED URLs ---\n"
             strings_text += "\n".join(analyzer.details.get("extracted_urls", ["None"]))
             strings_text += "\n\n--- EXTRACTED IPs ---\n"
@@ -1013,7 +1064,7 @@ class AppUI:
         title = "Credits"
         message = (
             "ZodaciOS - Developer\n\n"
-            "httpsIn-App-Purchase://github.com/ZodaciOS - My github account\n"
+            "https://github.com/ZodaciOS - My github account\n"
             "https://github.com/ZodaciOS/AppShield - the repo of this script\n\n"
             "Please follow me & star the repo. Thanks!"
         )
