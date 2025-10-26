@@ -20,10 +20,10 @@ import platform
 import threading
 import queue
 import subprocess
-import struct # For Mach-O parsing
+import struct
 
 try:
-    from PIL import Image, ImageTk, ImageDraw # Added ImageDraw for icons
+    from PIL import Image, ImageTk, ImageDraw
 except ImportError:
     messagebox.showerror("Missing Dependency", "Pillow library not found.\nPlease run 'pip install pillow' to enable image viewing and file icons.")
 
@@ -50,8 +50,8 @@ JAILBREAK_STRINGS = (
     b"/Applications/Cydia.app", b"/Library/MobileSubstrate/MobileSubstrate.dylib", b"/usr/libexec/sftp-server",
     b"/usr/bin/sshd", b"/var/cache/apt/", b"/var/lib/apt", b"/var/lib/cydia", b"/var/log/syslog",
     b"/private/var/stash", b"/private/var/tmp/cydia.log", b"/private/var/lib/apt/", b"/Applications/FakeCarrier.app",
-    b"/Applications/Filza.app", b"/Applications/iFile.app", b"/Applications/NewTerm.app", b"jbexec", b"launchctl", b"spawn",
-    b"cynject", b"/usr/lib/libcycript.dylib"
+    b"/Applications/Filza.app", b"/Applications/iFile.app", b"/Applications/NewTerm.app",
+    b"jbexec", b"launchctl", b"spawn", b"cynject", b"/usr/lib/libcycript.dylib"
 )
 SUSPICIOUS_IMPORTS = (
     b"_performTask", b"task_for_pid", b"performSelector", b"dlopen", b"dlsym", b"ptrace", b"sysctl",
@@ -59,15 +59,14 @@ SUSPICIOUS_IMPORTS = (
     b"KERN_PROC", b"P_TRACED", b"sysctlbyname", b"MobileGestalt", b"MGCopyAnswer",
     b"LSApplicationWorkspace", b"SpringBoardServices", b"SBS",
     b"UIWebView", b"objc_getClass", b"class_getInstanceMethod", b"method_exchangeImplementations",
-    b"NSFileProtectionKey", b"DCAppAttestService" # Added DeviceCheck
+    b"NSFileProtectionKey", b"DCAppAttestService"
 )
 WEAK_HASH_STRINGS = ( b"MD5", b"SHA1", b"CC_MD5", b"CC_SHA1")
 SUSPICIOUS_DDNS = ( b".ddns.net", b".no-ip.com", b".duckdns.org", b".dynu.com", b".strangled.net", b".hopto.org")
 TRACKING_LIBS = ( b"FirebaseAnalytics", b"AppsFlyer", b"Adjust", b"Mixpanel", b"Flurry", b"GoogleAnalytics", b"Segment", b"Amplitude", b"BranchMetrics", b"Kochava")
 CRYPTO_LIBS = ( b"CommonCrypto", b"RNCryptor", b"SQLCipher", b"OpenSSL", b"libsodium", b"CryptoSwift")
-SUSPICIOUS_FILE_EXTS = (".zip", ".rar", ".db", ".sql", ".sqlite", ".7z", ".tar", ".gz") # Added more
+SUSPICIOUS_FILE_EXTS = (".zip", ".rar", ".db", ".sql", ".sqlite", ".7z", ".tar", ".gz")
 SCRIPT_EXTS = (".sh", ".pl", ".py", ".rb", ".js", ".command")
-
 URL_REGEX = re.compile(rb'https?://[^\s"\'<>]+', re.IGNORECASE)
 IP_REGEX = re.compile(rb'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 AWS_KEY_REGEX = re.compile(rb'(A3T[A-Z0-9]|AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}')
@@ -76,18 +75,8 @@ FACEBOOK_APP_ID_REGEX = re.compile(rb'fb[0-9]{13,}')
 GENERIC_KEY_TOKEN_REGEX = re.compile(rb'(key|token|secret|password|bearer|auth)[=:\s"\']+[A-Za-z0-9+/=_-]{16,}', re.IGNORECASE)
 NSUSERDEFAULTS_SENSITIVE_REGEX = re.compile(rb'NSUserDefaults.*(password|token|secret|key|credential|auth)', re.IGNORECASE)
 
-# --- Mach-O Constants ---
-MH_MAGIC_64 = 0xfeedfacf
-MH_CIGAM_64 = 0xcffaedfe
-LC_SEGMENT_64 = 0x19
-LC_LOAD_DYLIB = 0xc
-LC_ENCRYPTION_INFO_64 = 0x2C
-PIE_FLAG = 0x00200000 # MH_PIE
-NO_REEXPORTED_DYLIBS_FLAG = 0x01000000 # MH_NO_REEXPORTED_DYLIBS (proxy for ARC)
-HAS_TLV_DESCRIPTORS_FLAG = 0x08000000 # MH_HAS_TLV_DESCRIPTORS (proxy for ARC)
-STACK_GUARD_FLAG = 0x00008000 # LC_REQ_DYLD in LC_UNIXTHREAD
+MH_MAGIC_64 = 0xfeedfacf; MH_CIGAM_64 = 0xcffaedfe; LC_SEGMENT_64 = 0x19; LC_LOAD_DYLIB = 0xc; LC_ENCRYPTION_INFO_64 = 0x2C; PIE_FLAG = 0x00200000; NO_REEXPORTED_DYLIBS_FLAG = 0x01000000; HAS_TLV_DESCRIPTORS_FLAG = 0x08000000; STACK_GUARD_FLAG = 0x00008000
 
-# --- Helper functions ---
 def read_plist_bytes(data):
     try: return plistlib.loads(data)
     except Exception:
@@ -107,17 +96,15 @@ def sha256_of_file(path):
         print(f"Error hashing file {path}: {e}")
         return "Error Hashing"
 
-
 def zip_entry_unix_mode(zinfo):
     try: return (zinfo.external_attr >> 16) & 0xFFFF
     except Exception: return 0
 
 def looks_macho(data):
     if len(data) < 4: return False
-    magic = struct.unpack('<I', data[:4])[0] # Read magic number (little-endian)
+    magic = struct.unpack('<I', data[:4])[0]
     return magic in (0xfeedface, 0xcefaedfe, MH_MAGIC_64, MH_CIGAM_64, 0xcafebabe)
 
-# --- Analyzer Class with More Detections ---
 class Analyzer:
     def __init__(self, ipa_path, log_callback=None):
         self.ipa_path = ipa_path
@@ -131,15 +118,17 @@ class Analyzer:
             "hardcoded_fb_ids": [], "hardcoded_generic_secrets": [], "injected_dylibs": [],
             "private_frameworks": [], "clipboard_access_files": set(), "sysctl_anti_debug": set(),
             "syscall_usage": set(), "suspicious_files": [], "macho_details": {},
-            "insecure_nsuserdefaults": set()
+            "insecure_nsuserdefaults": set(), "anti_debug_exit": set()
         }
         self.log_callback = log_callback
 
     def _log(self, message):
-        if self.log_callback: self.log_callback(f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}\n")
+        if self.log_callback:
+            self.log_callback(f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}\n")
 
     def _add_finding(self, category, info, score_increase):
-        self.findings.append((category, info)); self.score += score_increase
+        self.findings.append((category, info))
+        self.score += score_increase
         self._log(f"Finding [{category}]: {info} (+{score_increase})")
 
     def _scan_file_content(self, data, filename):
@@ -168,43 +157,31 @@ class Analyzer:
             if b"UIPasteboard" in data: self.details["clipboard_access_files"].add(filename)
             if b"sysctl" in data and (b"KERN_PROC" in data or b"P_TRACED" in data): self.details["sysctl_anti_debug"].add(filename)
             if b"syscall" in data and b"(" in data: self.details["syscall_usage"].add(filename)
-            if b"exit(" in data and (b"PT_DENY_ATTACH" in data or b"sysctl" in data or b"isatty" in data):
-                self.details.setdefault("anti_debug_exit", set()).add(filename)
+            if b"exit(" in data and (b"PT_DENY_ATTACH" in data or b"sysctl" in data or b"isatty" in data): self.details["anti_debug_exit"].add(filename)
         except Exception as e: print(f"Error scanning file content {filename}: {e}\n{traceback.format_exc()}")
 
     def _analyze_macho(self, data, filename):
         details = {'arch': 'Unknown', 'pie': False, 'arc': False, 'stack_canary': False, 'encrypted': False, 'swift': False, 'bitcode': False}
         try:
             if not looks_macho(data): return details
-            magic = struct.unpack('<I', data[:4])[0]
-            is_64 = magic in (MH_MAGIC_64, MH_CIGAM_64)
-            endian = '<' if magic in (0xfeedface, MH_MAGIC_64, 0xcafebabe) else '>' # Determine endianness
-
+            magic = struct.unpack('<I', data[:4])[0]; is_64 = magic in (MH_MAGIC_64, MH_CIGAM_64); endian = '<' if magic in (0xfeedface, MH_MAGIC_64, 0xcafebabe) else '>'
             if is_64:
-                details['arch'] = 'arm64/x86_64' # Basic assumption
-                header_format = endian + 'I I I I I I I I' # magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved
-                header_size = struct.calcsize(header_format)
+                details['arch'] = 'arm64/x86_64'; header_format = endian + 'I I I I I I I I'; header_size = struct.calcsize(header_format)
                 if len(data) < header_size: return details
                 magic_val, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved = struct.unpack(header_format, data[:header_size])
-                
-                # Refine Arch based on cputype (simplified)
-                CPU_TYPE_ARM64 = 0x0100000c
-                CPU_TYPE_X86_64 = 0x01000007
+                CPU_TYPE_ARM64 = 0x0100000c; CPU_TYPE_X86_64 = 0x01000007
                 if cputype == CPU_TYPE_ARM64: details['arch'] = 'arm64'
                 elif cputype == CPU_TYPE_X86_64: details['arch'] = 'x86_64'
-
-                details['pie'] = bool(flags & PIE_FLAG)
-                details['arc'] = bool(flags & (NO_REEXPORTED_DYLIBS_FLAG | HAS_TLV_DESCRIPTORS_FLAG)) # Heuristic
-
+                details['pie'] = bool(flags & PIE_FLAG); details['arc'] = bool(flags & (NO_REEXPORTED_DYLIBS_FLAG | HAS_TLV_DESCRIPTORS_FLAG))
                 offset = header_size
                 for _ in range(ncmds):
-                    if offset + 8 > len(data): break # Check bounds
+                    if offset + 8 > len(data): break
                     cmd, cmdsize = struct.unpack(endian + 'II', data[offset:offset+8])
-                    if cmdsize == 0 or offset + cmdsize > len(data): break # Invalid cmdsize
-
+                    if cmdsize == 0 or offset + cmdsize > len(data): break
                     if cmd == LC_SEGMENT_64:
                          seg_name = data[offset+8:offset+24].split(b'\0', 1)[0].decode(errors='ignore')
                          if seg_name == '__TEXT':
+                             if offset+68 > len(data): break # Check bounds before unpack
                              nsects = struct.unpack(endian + 'I', data[offset+64:offset+68])[0]
                              sect_offset = offset + 72
                              for _ in range(nsects):
@@ -212,7 +189,8 @@ class Analyzer:
                                  sect_name = data[sect_offset:sect_offset+16].split(b'\0', 1)[0]
                                  if sect_name == b'__swift5_typeref': details['swift'] = True; break
                                  sect_offset += 80
-                         elif seg_name == '__LLVM': # Check for Bitcode segment
+                         elif seg_name == '__LLVM':
+                             if offset+68 > len(data): break
                              nsects = struct.unpack(endian + 'I', data[offset+64:offset+68])[0]
                              sect_offset = offset + 72
                              for _ in range(nsects):
@@ -220,29 +198,17 @@ class Analyzer:
                                  sect_name = data[sect_offset:sect_offset+16].split(b'\0', 1)[0]
                                  if sect_name == b'__bundle': details['bitcode'] = True; break
                                  sect_offset += 80
-
                     elif cmd == LC_ENCRYPTION_INFO_64:
-                        cryptoff, cryptsize, cryptid = struct.unpack(endian + 'III', data[offset+8:offset+20])
-                        details['encrypted'] = (cryptid != 0)
-                    elif cmd & 0x7FFFFFFF == 0x22: # LC_UNIXTHREAD simplified check
-                        # Check thread state for stack canary flag - VERY simplified, might not be accurate
-                         if len(data) > offset + 16: # Need enough data for flavor/count
+                        if offset+20 > len(data): break
+                        cryptoff, cryptsize, cryptid = struct.unpack(endian + 'III', data[offset+8:offset+20]); details['encrypted'] = (cryptid != 0)
+                    elif cmd & 0x7FFFFFFF == 0x22:
+                         if len(data) > offset + 16:
                              flavor, count = struct.unpack(endian + 'II', data[offset+8:offset+16])
-                             # Stack guard info might be in thread state, but parsing is complex.
-                             # This is a basic placeholder check, looking at LC_REQ_DYLD flag in load command itself
                              if cmd & STACK_GUARD_FLAG: details['stack_canary'] = True
-
                     offset += cmdsize
-            else:
-                 details['arch'] = 'armv7/i386' # Basic 32-bit assumption
-                 # Could add 32-bit parsing if needed, similar logic but different structs/offsets
-
-        except Exception as e:
-            self._log(f"WARNING: Mach-O parsing error for {filename}: {e}")
-        finally:
-            self.details["macho_details"][filename] = details
-            return details
-
+            else: details['arch'] = 'armv7/i386'
+        except Exception as e: self._log(f"WARNING: Mach-O parsing error for {filename}: {e}")
+        finally: self.details["macho_details"][filename] = details; return details
 
     def run(self):
         try:
@@ -342,8 +308,7 @@ class Analyzer:
                     try: raw = z.read(zinfo.filename)
                     except Exception: raw = b""
                     if looks_macho(raw):
-                        macho_count += 1
-                        macho_files.append((rel_path, raw)) # Store path and data
+                        macho_count += 1; macho_files.append((rel_path, raw))
                         if main_bin_name and rel_path == main_bin_name: main_bin_data = raw
                         else: self._scan_file_content(raw, rel_path)
                     elif lower.endswith((".js", ".html")): self._scan_file_content(raw, rel_path)
@@ -360,28 +325,23 @@ class Analyzer:
                 if has_swiftui: self._add_finding("Info", "Uses SwiftUI/Concurrency", 0)
                 if has_watchkit: self._add_finding("Info", "Includes WatchKit components", 0)
                 self._log("Analyzing Mach-O headers...")
-                for path, data in macho_files: # Analyze all Mach-O files found
+                for path, data in macho_files:
                     macho_info = self._analyze_macho(data, path)
-                    is_main = (path == main_bin_name)
-                    prefix = "Main Binary" if is_main else f"Mach-O ({os.path.basename(path)})"
+                    is_main = (path == main_bin_name); prefix = "Main Binary" if is_main else f"Mach-O ({os.path.basename(path)})"
                     if macho_info['arch'] != 'Unknown': self._add_finding(prefix, f"Arch: {macho_info['arch']}", 0)
                     if not macho_info['pie']: self._add_finding(prefix, "PIE Disabled (Security Risk)", 2 if is_main else 1)
                     if not macho_info['arc']: self._add_finding(prefix, "ARC Likely Disabled (Memory Risk)", 1)
-                    # Stack canary check is unreliable here, skipping finding for now.
-                    # if not macho_info['stack_canary']: self._add_finding(prefix, "Stack Canary Disabled", 2 if is_main else 1)
                     if macho_info['encrypted']: self._add_finding(prefix, "App Store Encrypted", 0)
                     if macho_info['swift']: self._add_finding(prefix, "Contains Swift code", 0)
                     if macho_info['bitcode']: self._add_finding(prefix, "Contains Bitcode", 0)
-
                 self._log("Analyzing main binary references...")
                 if main_bin_data:
                     if found_dylibs:
                         for dylib_name in found_dylibs:
                             if dylib_name in main_bin_data: decoded_name = dylib_name.decode(errors="ignore"); self._add_finding("Injection", f"Main binary references '{decoded_name}'", 5); self.details["injected_dylibs"].append(decoded_name)
-                    if not main_bin_name in self.details["macho_details"]: # If main wasn't in macho_files list
-                         self._analyze_macho(main_bin_data, main_bin_name) # Ensure it gets analyzed
+                    if not main_bin_name in self.details["macho_details"]: self._analyze_macho(main_bin_data, main_bin_name)
                     self._log("Scanning main binary content...")
-                    self._scan_file_content(main_bin_data, main_bin_name) # Scan content *after* header analysis
+                    self._scan_file_content(main_bin_data, main_bin_name)
                     h = hashlib.sha256(main_bin_data).hexdigest(); self._add_finding("Main Binary", f"SHA256: {h}", 0); size = len(main_bin_data)
                     if size > 50 * 1024 * 1024: self._add_finding("Binary Size", f"{size//1024//1024} MB (large binary)", 2)
                 elif main_bin_name: self._add_finding("Warning", f"Main binary '{main_bin_name}' in Plist but not found in zip", 3); self._log(f"WARNING: Main binary '{main_bin_name}' not found.")
@@ -408,7 +368,6 @@ class Analyzer:
                 if self.details.get("hardcoded_generic_secrets"): self._add_finding("Security", f"{len(self.details['hardcoded_generic_secrets'])} potential hardcoded secrets found", 3)
                 if self.details["suspicious_files"]: self._add_finding("Suspicious", f"{len(self.details['suspicious_files'])} potentially suspicious files in root", 2)
                 if self.details["insecure_nsuserdefaults"]: self._add_finding("Security", f"Potential insecure NSUserDefaults usage ({len(self.details['insecure_nsuserdefaults'])} files)", 2)
-
                 self.details["scanned_at"] = datetime.datetime.utcnow().isoformat() + "Z"; self.details["risk_score"] = self.score
                 self._log("Analysis finished.")
         except Exception as e: self._add_finding("Fatal Error", f"{e.__class__.__name__}: {e}", 10); self._log(f"FATAL ERROR: {e}\n{traceback.format_exc()}"); traceback.print_exc()
@@ -420,218 +379,60 @@ class Analyzer:
 
 class AppUI:
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("AppShield — Enhanced IPA Analyzer")
-        self.root.geometry("1100x700")
-        self.root.configure(bg="#2E2E2E")
-        
-        self.analyzer_details = {}
-        self.analyzer_findings = []
-        self.FG = "#E0E0E0"
-        self.selected_file_path = ""
-        self.current_analyzer = None
-        self.warned_about_modifications = False
-        self.progress_window = None
-        self.log_text_widget = None
-        self.folder_icon = None # Added for icons
-        self.file_icon = None   # Added for icons
-
-        self.setup_font_and_style()
-        self.create_menu()
-        self.create_icons() # Create icons after style setup
-        
-        top_frame = ttk.Frame(self.root, style="TFrame")
-        top_frame.pack(fill="x", padx=12, pady=(5, 8))
-        
+        self.root = tk.Tk(); self.root.title("AppShield — Enhanced IPA Analyzer"); self.root.geometry("1100x700"); self.root.configure(bg="#2E2E2E")
+        self.analyzer_details = {}; self.analyzer_findings = []; self.FG = "#E0E0E0"; self.selected_file_path = ""; self.current_analyzer = None; self.warned_about_modifications = False; self.progress_window = None; self.log_text_widget = None; self.folder_icon = None; self.file_icon = None
+        self.setup_font_and_style(); self.create_menu(); self.create_icons()
+        top_frame = ttk.Frame(self.root, style="TFrame"); top_frame.pack(fill="x", padx=12, pady=(5, 8))
         ttk.Label(top_frame, text="IPA File:", style="TLabel").pack(side="left", padx=(0, 5))
-        
-        self.path_var = tk.StringVar()
-        self.entry = ttk.Entry(top_frame, textvariable=self.path_var, width=70, font=self.default_font)
-        self.entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        
+        self.path_var = tk.StringVar(); self.entry = ttk.Entry(top_frame, textvariable=self.path_var, width=70, font=self.default_font); self.entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(top_frame, text="Browse...", command=self.browse, style="TButton").pack(side="left", padx=(0, 6))
-        
-        self.analyze_button = ttk.Button(top_frame, text="Analyze", command=self.analyze, style="Accent.TButton")
-        self.analyze_button.pack(side="left", padx=(0, 6))
-        
+        self.analyze_button = ttk.Button(top_frame, text="Analyze", command=self.analyze, style="Accent.TButton"); self.analyze_button.pack(side="left", padx=(0, 6))
         ttk.Button(top_frame, text="Clear", command=self.clear_results, style="TButton").pack(side="left")
-        
-        self.score_label = ttk.Label(top_frame, text="Risk: N/A", font=self.default_font_bold, style="TLabel")
-        self.score_label.pack(side="right", padx=(10, 0))
-
-        self.main_pane = ttk.PanedWindow(self.root, orient="horizontal")
-        self.main_pane.pack(fill="both", expand=True, padx=12, pady=(0, 4)) # Reduced bottom pady
-
-        left_frame = ttk.Frame(self.main_pane)
-        
-        findings_header_frame = ttk.Frame(left_frame)
-        findings_header_frame.pack(fill="x", pady=(0, 2))
-        ttk.Label(findings_header_frame, text="Findings", font=self.default_font_bold, style="TLabel").pack(side="left", anchor="w")
-        
-        self.findings_search_var = tk.StringVar()
-        self.findings_search_var.trace_add("write", self.filter_findings)
-        findings_search = ttk.Entry(findings_header_frame, textvariable=self.findings_search_var, font=self.default_font, width=20)
-        findings_search.pack(side="right", padx=(5,0))
-        ttk.Label(findings_header_frame, text="Filter:", style="TLabel").pack(side="right")
-        
-        self.tree = ttk.Treeview(left_frame, columns=("cat", "info"), show="headings", height=30)
-        self.tree.heading("cat", text="Category")
-        self.tree.heading("info", text="Detail")
-        self.tree.column("cat", width=120, stretch=False, anchor="w")
-        self.tree.column("info", width=250, stretch=True, anchor="w")
-        
-        tree_scroll = ttk.Scrollbar(left_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=tree_scroll.set)
-        tree_scroll.pack(side="right", fill="y", padx=(0,0))
-        self.tree.pack(side="left", fill="both", expand=True, padx=(0,0))
-        
-        self.findings_tree_menu = tk.Menu(self.root, tearoff=0)
-        self.findings_tree_menu.add_command(label="Copy Value", command=self.copy_finding_value)
-        self.tree.bind("<Button-3>", self.show_findings_menu)
-        
+        self.score_label = ttk.Label(top_frame, text="Risk: N/A", font=self.default_font_bold, style="TLabel"); self.score_label.pack(side="right", padx=(10, 0))
+        self.main_pane = ttk.PanedWindow(self.root, orient="horizontal"); self.main_pane.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+        left_frame = ttk.Frame(self.main_pane); findings_header_frame = ttk.Frame(left_frame); findings_header_frame.pack(fill="x", pady=(0, 2)); ttk.Label(findings_header_frame, text="Findings", font=self.default_font_bold, style="TLabel").pack(side="left", anchor="w")
+        self.findings_search_var = tk.StringVar(); self.findings_search_var.trace_add("write", self.filter_findings); findings_search = ttk.Entry(findings_header_frame, textvariable=self.findings_search_var, font=self.default_font, width=20); findings_search.pack(side="right", padx=(5,0)); ttk.Label(findings_header_frame, text="Filter:", style="TLabel").pack(side="right")
+        self.tree = ttk.Treeview(left_frame, columns=("cat", "info"), show="headings", height=30); self.tree.heading("cat", text="Category"); self.tree.heading("info", text="Detail"); self.tree.column("cat", width=120, stretch=False, anchor="w"); self.tree.column("info", width=250, stretch=True, anchor="w")
+        tree_scroll = ttk.Scrollbar(left_frame, orient="vertical", command=self.tree.yview); self.tree.configure(yscrollcommand=tree_scroll.set); tree_scroll.pack(side="right", fill="y", padx=(0,0)); self.tree.pack(side="left", fill="both", expand=True, padx=(0,0))
+        self.findings_tree_menu = tk.Menu(self.root, tearoff=0); self.findings_tree_menu.add_command(label="Copy Value", command=self.copy_finding_value); self.tree.bind("<Button-3>", self.show_findings_menu)
         self.main_pane.add(left_frame, weight=35)
-
-        right_frame = ttk.Frame(self.main_pane)
-        ttk.Label(right_frame, text="Analysis Details", font=self.default_font_bold, style="TLabel").pack(anchor="w", pady=(0, 5))
-        
+        right_frame = ttk.Frame(self.main_pane); ttk.Label(right_frame, text="Analysis Details", font=self.default_font_bold, style="TLabel").pack(anchor="w", pady=(0, 5))
         self.notebook = ttk.Notebook(right_frame, style="TNotebook")
-        
-        self.summary_tab = self.create_text_tab("Summary")
-        
-        self.file_tree_tab = ttk.Frame(self.notebook, style="TFrame")
-        
-        self.file_search_var = tk.StringVar()
-        self.file_search_var.trace_add("write", self.search_files)
-        search_entry = ttk.Entry(self.file_tree_tab, textvariable=self.file_search_var, font=self.default_font)
-        search_entry.pack(fill="x", padx=1, pady=(2,1))
-        
-        self.file_tree = ttk.Treeview(self.file_tree_tab, columns=("path",), show="tree headings", displaycolumns=())
-        self.file_tree.heading("#0", text="File/Directory")
-        self.file_tree.column("#0", stretch=True, anchor='w')
-        
-        file_tree_scroll = ttk.Scrollbar(self.file_tree_tab, orient="vertical", command=self.file_tree.yview)
-        self.file_tree.configure(yscrollcommand=file_tree_scroll.set)
-        file_tree_scroll.pack(side="right", fill="y", padx=(0,0))
-        self.file_tree.pack(fill="both", expand=True, pady=(1,0), padx=(0,0))
-        
-        self.file_tree_menu = tk.Menu(self.root, tearoff=0)
-        self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
-        self.file_tree_menu.add_command(label="Edit File", command=self.edit_file_tree_selection, state="disabled")
-        self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled")
-        self.file_tree_menu.add_command(label="View as Hex", command=self.view_file_hex, state="disabled")
-        self.file_tree_menu.add_command(label="Get SHA256 Hash", command=self.get_file_hash, state="disabled")
-        self.file_tree_menu.add_command(label="Lookup Hash on VirusTotal", command=self.lookup_hash_vt, state="disabled") # Added VT
-        self.file_tree_menu.add_separator()
-        self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled")
-        self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
-        
-        self.notebook.add(self.file_tree_tab, text="File Tree")
-        
-        self.info_tab = self.create_text_tab("Info.plist")
-        self.ent_tab = self.create_text_tab("Entitlements")
-        self.strings_tab = self.create_text_tab("Strings & URLs")
-        
-        self.notebook.pack(fill="both", expand=True, pady=(0,0))
-        self.main_pane.add(right_frame, weight=65)
-
-        # --- Status Bar ---
-        self.status_var = tk.StringVar()
-        self.status_var.set("Ready")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor='w', style="TLabel")
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=0, pady=0)
-
-
-        bottom_frame = ttk.Frame(self.root, style="TFrame")
-        bottom_frame.pack(fill="x", padx=12, pady=(5, 8))
-        
+        self.summary_tab = self.create_text_tab("Summary"); self.file_tree_tab = ttk.Frame(self.notebook, style="TFrame")
+        self.file_search_var = tk.StringVar(); self.file_search_var.trace_add("write", self.search_files); search_entry = ttk.Entry(self.file_tree_tab, textvariable=self.file_search_var, font=self.default_font); search_entry.pack(fill="x", padx=1, pady=(2,1))
+        self.file_tree = ttk.Treeview(self.file_tree_tab, columns=("path",), show="tree headings", displaycolumns=()); self.file_tree.heading("#0", text="File/Directory"); self.file_tree.column("#0", stretch=True, anchor='w')
+        file_tree_scroll = ttk.Scrollbar(self.file_tree_tab, orient="vertical", command=self.file_tree.yview); self.file_tree.configure(yscrollcommand=file_tree_scroll.set); file_tree_scroll.pack(side="right", fill="y", padx=(0,0)); self.file_tree.pack(fill="both", expand=True, pady=(1,0), padx=(0,0))
+        self.file_tree_menu = tk.Menu(self.root, tearoff=0); self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled"); self.file_tree_menu.add_command(label="Edit File", command=self.edit_file_tree_selection, state="disabled"); self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled"); self.file_tree_menu.add_command(label="View as Hex", command=self.view_file_hex, state="disabled"); self.file_tree_menu.add_command(label="Get SHA256 Hash", command=self.get_file_hash, state="disabled"); self.file_tree_menu.add_command(label="Lookup Hash on VirusTotal", command=self.lookup_hash_vt, state="disabled"); self.file_tree_menu.add_separator(); self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled"); self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
+        self.notebook.add(self.file_tree_tab, text="File Tree"); self.info_tab = self.create_text_tab("Info.plist"); self.ent_tab = self.create_text_tab("Entitlements"); self.strings_tab = self.create_text_tab("Strings & URLs")
+        self.notebook.pack(fill="both", expand=True, pady=(0,0)); self.main_pane.add(right_frame, weight=65)
+        self.status_var = tk.StringVar(); self.status_var.set("Ready"); status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor='w', style="TLabel"); status_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=0, pady=0)
+        bottom_frame = ttk.Frame(self.root, style="TFrame"); bottom_frame.pack(fill="x", padx=12, pady=(5, 8))
         ttk.Button(bottom_frame, text="Export Details (JSON)", command=self.export_json).pack(side="right", padx=(0, 0))
         ttk.Button(bottom_frame, text="Save Findings (TXT)", command=self.save_findings).pack(side="right", padx=(0, 6))
 
     def create_icons(self):
         try:
-            folder_color = "#FFA500" # Orange-ish
-            file_color = "#D3D3D3" # Light gray
-            icon_size = (16, 16)
-
-            # Basic Folder Icon
-            folder_img = Image.new('RGBA', icon_size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(folder_img)
-            draw.rectangle([(1, 3), (icon_size[0]-2, icon_size[1]-2)], outline=folder_color, width=1)
-            draw.rectangle([(3, 1), (8, 5)], outline=folder_color, width=1)
-            self.folder_icon = ImageTk.PhotoImage(folder_img)
-
-            # Basic File Icon
-            file_img = Image.new('RGBA', icon_size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(file_img)
-            draw.rectangle([(2, 1), (icon_size[0]-2, icon_size[1]-2)], outline=file_color, width=1)
-            draw.line([(icon_size[0]-5, 1), (icon_size[0]-5, 5), (icon_size[0]-2, 5)], fill=file_color, width=1) # Folded corner
-            self.file_icon = ImageTk.PhotoImage(file_img)
-        except NameError: # Pillow not installed
-            self.folder_icon = None
-            self.file_icon = None
-        except Exception as e:
-            print(f"Error creating icons: {e}")
-            self.folder_icon = None
-            self.file_icon = None
-
+            folder_color = "#FFA500"; file_color = "#D3D3D3"; icon_size = (16, 16)
+            folder_img = Image.new('RGBA', icon_size, (0, 0, 0, 0)); draw = ImageDraw.Draw(folder_img); draw.rectangle([(1, 3), (icon_size[0]-2, icon_size[1]-2)], outline=folder_color, width=1); draw.rectangle([(3, 1), (8, 5)], outline=folder_color, width=1); self.folder_icon = ImageTk.PhotoImage(folder_img)
+            file_img = Image.new('RGBA', icon_size, (0, 0, 0, 0)); draw = ImageDraw.Draw(file_img); draw.rectangle([(2, 1), (icon_size[0]-2, icon_size[1]-2)], outline=file_color, width=1); draw.line([(icon_size[0]-5, 1), (icon_size[0]-5, 5), (icon_size[0]-2, 5)], fill=file_color, width=1); self.file_icon = ImageTk.PhotoImage(file_img)
+        except NameError: self.folder_icon = None; self.file_icon = None
+        except Exception as e: print(f"Error creating icons: {e}"); self.folder_icon = None; self.file_icon = None
 
     def create_menu(self):
-        menubar = Menu(self.root)
-        self.root.config(menu=menubar)
-
-        file_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Repack Unsigned IPA...", command=self.repackage_ipa)
-        file_menu.add_command(label="Repack Signed IPA...", command=self.repackage_signed_ipa) # Added Signed
-        file_menu.add_command(label="Open Temp Folder", command=self.open_temp_folder) # Added Temp Folder
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
-
-        view_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
-        menubar.add_cascade(label="View", menu=view_menu)
-        view_menu.add_command(label="Expand All Findings", command=lambda: self.expand_collapse_all(self.tree, True))
-        view_menu.add_command(label="Collapse All Findings", command=lambda: self.expand_collapse_all(self.tree, False))
-        view_menu.add_separator()
-        view_menu.add_command(label="Expand All Files", command=lambda: self.expand_collapse_all(self.file_tree, True))
-        view_menu.add_command(label="Collapse All Files", command=lambda: self.expand_collapse_all(self.file_tree, False))
-
-        tools_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
-        menubar.add_cascade(label="Tools", menu=tools_menu)
-        tools_menu.add_command(label="Generate Summary Report", command=self.generate_summary_report)
-        tools_menu.add_command(label="Entitlement Explorer", command=self.show_entitlement_explorer)
-
-        settings_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
-        menubar.add_cascade(label="Settings", menu=settings_menu)
-        settings_menu.add_checkbutton(label="Always Show Signature Warning", command=self.toggle_always_warn) # Added toggle
-
-        help_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Getting Started", command=self.show_getting_started)
-        help_menu.add_separator()
-        help_menu.add_command(label="Credits", command=self.show_credits)
-        help_menu.add_command(label="View GitHub Profile", command=lambda: webbrowser.open("https://github.com/ZodaciOS"))
-        help_menu.add_command(label="View AppShield Repo", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield"))
-        help_menu.add_command(label="Report Issues or Bugs", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield/issues"))
+        menubar = Menu(self.root); self.root.config(menu=menubar)
+        file_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font); menubar.add_cascade(label="File", menu=file_menu); file_menu.add_command(label="Repack Unsigned IPA...", command=self.repackage_ipa); file_menu.add_command(label="Repack Signed IPA...", command=self.repackage_signed_ipa); file_menu.add_command(label="Open Temp Folder", command=self.open_temp_folder); file_menu.add_separator(); file_menu.add_command(label="Exit", command=self.root.quit)
+        view_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font); menubar.add_cascade(label="View", menu=view_menu); view_menu.add_command(label="Expand All Findings", command=lambda: self.expand_collapse_all(self.tree, True)); view_menu.add_command(label="Collapse All Findings", command=lambda: self.expand_collapse_all(self.tree, False)); view_menu.add_separator(); view_menu.add_command(label="Expand All Files", command=lambda: self.expand_collapse_all(self.file_tree, True)); view_menu.add_command(label="Collapse All Files", command=lambda: self.expand_collapse_all(self.file_tree, False))
+        tools_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font); menubar.add_cascade(label="Tools", menu=tools_menu); tools_menu.add_command(label="Generate Summary Report", command=self.generate_summary_report); tools_menu.add_command(label="Entitlement Explorer", command=self.show_entitlement_explorer)
+        settings_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font); menubar.add_cascade(label="Settings", menu=settings_menu); settings_menu.add_command(label="Reset Edit Warning", command=self.reset_edit_warning)
+        help_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font); menubar.add_cascade(label="Help", menu=help_menu); help_menu.add_command(label="Getting Started", command=self.show_getting_started); help_menu.add_separator(); help_menu.add_command(label="Credits", command=self.show_credits); help_menu.add_command(label="View GitHub Profile", command=lambda: webbrowser.open("https://github.com/ZodaciOS")); help_menu.add_command(label="View AppShield Repo", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield")); help_menu.add_command(label="Report Issues or Bugs", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield/issues"))
 
     def create_text_tab(self, name):
-        frame = ttk.Frame(self.notebook, style="TFrame")
-        txt_scroll_y = ttk.Scrollbar(frame, orient="vertical")
-        txt_scroll_x = ttk.Scrollbar(frame, orient="horizontal")
-        txt = tk.Text(frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4", insertbackground="#D4D4D4", selectbackground="#3A3D41", font=("Courier", 10), yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set, padx=5, pady=5, bd=0, highlightthickness=0)
-        txt_scroll_y.config(command=txt.yview)
-        txt_scroll_x.config(command=txt.xview)
-        txt_scroll_y.pack(side="right", fill="y")
-        txt_scroll_x.pack(side="bottom", fill="x")
-        txt.pack(fill="both", expand=True)
-        self.notebook.add(frame, text=name)
-        return txt
+        frame = ttk.Frame(self.notebook, style="TFrame"); txt_scroll_y = ttk.Scrollbar(frame, orient="vertical"); txt_scroll_x = ttk.Scrollbar(frame, orient="horizontal"); txt = tk.Text(frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4", insertbackground="#D4D4D4", selectbackground="#3A3D41", font=("Courier", 10), yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set, padx=5, pady=5, bd=0, highlightthickness=0); txt_scroll_y.config(command=txt.yview); txt_scroll_x.config(command=txt.xview); txt_scroll_y.pack(side="right", fill="y"); txt_scroll_x.pack(side="bottom", fill="x"); txt.pack(fill="both", expand=True); self.notebook.add(frame, text=name); return txt
 
     def setup_font_and_style(self):
-        os_name = platform.system()
+        os_name = platform.system();
         try:
-            fonts = tkfont.families()
-            font_found = False
-            font_prefs = ["Inter"]
+            fonts = tkfont.families(); font_found = False; font_prefs = ["Inter"]
             if os_name == "Windows": font_prefs.extend(["Segoe UI", "Arial"])
             elif os_name == "Darwin": font_prefs.extend(["San Francisco", "Helvetica Neue", "Helvetica", "Arial"])
             else: font_prefs.extend(["Helvetica", "Arial"])
@@ -655,14 +456,11 @@ class AppUI:
 
     def browse(self):
         p = filedialog.askopenfilename(filetypes=[("IPA files", "*.ipa"), ("All files", "*.*")])
-        if p:
-            self.path_var.set(p)
-            self.clear_results()
-            self.status_var.set(f"Selected: {os.path.basename(p)}")
+        if p: self.path_var.set(p); self.clear_results(); self.status_var.set(f"Selected: {os.path.basename(p)}")
 
     def clear_results(self):
         if self.current_analyzer: self.current_analyzer.cleanup(); self.current_analyzer = None
-        self.tree.delete(*self.tree.get_children())
+        self.tree.delete(*self.tree.get_children());
         for i in self.file_tree.get_children(): self.file_tree.delete(i)
         self.summary_tab.config(state="normal"); self.info_tab.config(state="normal"); self.ent_tab.config(state="normal"); self.strings_tab.config(state="normal")
         self.summary_tab.delete("1.0", "end"); self.info_tab.delete("1.0", "end"); self.ent_tab.delete("1.0", "end"); self.strings_tab.delete("1.0", "end")
@@ -673,22 +471,17 @@ class AppUI:
         self.status_var.set("Ready")
 
     def _populate_file_tree_recursive(self, parent_node, tree_dict, current_path="", search_term=""):
-        found_match = False
-        search_term = search_term.lower()
-        items = sorted(tree_dict.items())
-        folders = [(name, content) for name, content in items if isinstance(content, dict)]
-        files = [(name, content) for name, content in items if not isinstance(content, dict)]
+        found_match = False; search_term = search_term.lower(); items = sorted(tree_dict.items()); folders = [(n, c) for n, c in items if isinstance(c, dict)]; files = [(n, c) for n, c in items if not isinstance(c, dict)]
         for name, content in folders + files:
-            rel_path = f"{current_path}/{name}" if current_path else name
-            name_lower = name.lower()
+            rel_path = f"{current_path}/{name}" if current_path else name; name_lower = name.lower()
             if isinstance(content, dict):
-                node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,), image=self.folder_icon) # Added icon
-                child_matched = self._populate_file_tree_recursive(node, content, rel_path, search_term)
+                child_node = self.file_tree.insert(parent_node, "end", text=name, open=False, values=(rel_path,), image=self.folder_icon)
+                child_matched = self._populate_file_tree_recursive(child_node, content, rel_path, search_term)
                 if child_matched: found_match = True
                 elif search_term and search_term not in name_lower: self.file_tree.delete(child_node)
                 if search_term and (search_term in name_lower or child_matched): self.file_tree.item(child_node, open=True); found_match = True
             else:
-                if not search_term or search_term in name_lower: self.file_tree.insert(parent_node, "end", text=name, values=(rel_path,), image=self.file_icon); found_match = True # Added icon
+                if not search_term or search_term in name_lower: self.file_tree.insert(parent_node, "end", text=name, values=(rel_path,), image=self.file_icon); found_match = True
         return found_match
     
     def search_files(self, *args):
@@ -698,9 +491,8 @@ class AppUI:
 
     def filter_findings(self, *args):
         search_term = self.findings_search_var.get().lower()
-        self.tree.delete(*self.tree.get_children()) # Clear current view
+        self.tree.delete(*self.tree.get_children())
         if not self.analyzer_findings: return
-
         for cat, info_val in self.analyzer_findings:
             if not search_term or search_term in cat.lower() or search_term in str(info_val).lower():
                  self.tree.insert("", "end", values=(cat, info_val))
@@ -832,9 +624,22 @@ class AppUI:
         if not self.selected_file_path: return
         try:
             h = sha256_of_file(self.selected_file_path)
+            if h == "Error Hashing": raise ValueError("Could not hash file.")
             content = f"File: {os.path.basename(self.selected_file_path)}\n\nSHA256: {h}"
             self.show_text_viewer(self.selected_file_path, content_override=content, title_prefix="SHA256 Hash")
         except Exception as e: messagebox.showerror("Error Hashing File", str(e))
+
+    def lookup_hash_vt(self):
+        if not self.selected_file_path: return
+        try:
+            file_hash = sha256_of_file(self.selected_file_path)
+            if file_hash == "Error Hashing": raise ValueError("Could not get file hash.")
+            url = f"https://www.virustotal.com/gui/file/{file_hash}/detection"
+            webbrowser.open(url)
+            self.status_var.set(f"Opened VirusTotal for {os.path.basename(self.selected_file_path)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not look up hash:\n{e}")
+            self.status_var.set("Error looking up hash.")
             
     def show_findings_menu(self, event):
         iid = self.tree.identify_row(event.y)
@@ -902,7 +707,7 @@ class AppUI:
         if error: return
 
         self.analyzer_details = analyzer.details; self.analyzer_findings = analyzer.findings
-        self.filter_findings() # Apply initial filter (or lack thereof)
+        self.filter_findings() # Apply initial filter (which is none)
         info = analyzer.details.get("info", {}); ent = analyzer.details.get("entitlements", {})
         summary_text = (f"App Name: {info.get('CFBundleName', 'N/A')}\nBundle ID: {info.get('CFBundleIdentifier', 'N/A')}\nVersion: {info.get('CFBundleShortVersionString', 'N/A')}\n\nRisk Score: {analyzer.score}\nScanned: {analyzer.details.get('scanned_at', 'N/A')}\n\n--- Key Details ---\n"
                         f"Entitlements Source: {analyzer.details.get('entitlements_source', 'N/A')}\nTotal Files in .app: {len(analyzer.details.get('files', []))}\nDetected Injected Dylibs: {len(analyzer.details.get('injected_dylibs', []))}\nKnown Tracking Libs: {len(set(analyzer.details.get('tracking_libs', [])))}\n"
@@ -986,149 +791,9 @@ class AppUI:
             self.status_var.set("Unsigned repackage complete.")
         except Exception as e: messagebox.showerror("Repackage Failed", f"Could not create IPA file:\n{e}\n\n{traceback.format_exc()}"); self.status_var.set("Repackage failed.")
 
-    def repackage_signed_ipa(self): # Added function definition
-        if not self.current_analyzer or not self.analyzer_details.get("app_path"):
-            messagebox.showerror("Error", "Please analyze an IPA first.")
-            return
-
-        p12_path = filedialog.askopenfilename(title="Select .p12 Certificate File", filetypes=[("P12 files", "*.p12")])
-        if not p12_path: return
-
-        mobileprovision_path = filedialog.askopenfilename(title="Select .mobileprovision Profile", filetypes=[("Mobile Provision files", "*.mobileprovision")])
-        if not mobileprovision_path: return
-
-        p12_password = simpledialog.askstring("Password", "Enter .p12 password (leave blank if none):", show='*')
-        # If the user cancels the password dialog, askstring returns None
-        if p12_password is None:
-            return
-
-        output_ipa_path = filedialog.asksaveasfilename(defaultextension=".ipa",
-                                                     initialfile=f"signed_{os.path.basename(self.path_var.get())}",
-                                                     filetypes=[("IPA files", "*.ipa")])
-        if not output_ipa_path: return
-
-        payload_dir = os.path.join(self.current_analyzer.tmpdir, "Payload")
-        temp_unsigned_ipa_path = os.path.join(self.current_analyzer.tmpdir, "temp_unsigned.ipa")
-
-        self.status_var.set("Repackaging unsigned IPA for signing...")
-        self.root.update_idletasks()
-        try:
-            # 1. Create temporary unsigned IPA
-            with zipfile.ZipFile(temp_unsigned_ipa_path, 'w', zipfile.ZIP_DEFLATED) as temp_zip:
-                for root, dirs, files in os.walk(payload_dir):
-                    arc_root = os.path.relpath(root, self.current_analyzer.tmpdir).replace(os.sep, '/')
-                    for file in files:
-                        full_path = os.path.join(root, file)
-                        arcname = f"{arc_root}/{file}"
-                        temp_zip.write(full_path, arcname)
-                for item in os.listdir(self.current_analyzer.tmpdir):
-                     item_path = os.path.join(self.current_analyzer.tmpdir, item)
-                     if item != "Payload" and os.path.isfile(item_path) and item != os.path.basename(temp_unsigned_ipa_path):
-                         temp_zip.write(item_path, item)
-            self.status_var.set("Executing zsign...")
-            self._log("Created temporary unsigned IPA for signing.")
-
-            # 2. Determine zsign path
-            if getattr(sys, 'frozen', False): base_path = sys._MEIPASS
-            else: base_path = os.path.dirname(os.path.abspath(__file__))
-            zsign_executable = "zsign.exe" if platform.system() == "Windows" else "zsign"
-            zsign_path = os.path.join(base_path, "bin", zsign_executable)
-
-            if not os.path.exists(zsign_path):
-                messagebox.showerror("Error", f"zsign executable not found:\n{zsign_path}\nEnsure zsign and DLLs are in a 'bin' subfolder.")
-                self.status_var.set("zsign not found.")
-                if os.path.exists(temp_unsigned_ipa_path): os.remove(temp_unsigned_ipa_path)
-                return
-
-            # 3. Build and run zsign command
-            cmd = [ zsign_path, "-k", p12_path, "-m", mobileprovision_path, "-o", output_ipa_path, "-z", "9", temp_unsigned_ipa_path ]
-            if p12_password: cmd.extend(["-p", p12_password]) # Add password only if provided
-
-            self._log(f"Running command: {' '.join(cmd)}") # Log the command (mask password if needed in real app)
-            
-            # Show progress dialog for signing
-            self._show_progress_dialog()
-            self.progress_window.title("Signing IPA...")
-            ttk.Label(self.progress_window, text="Signing in progress...", font=self.default_font_bold).pack(pady=(10, 5)) # Update label text
-            # Use threading to run zsign without freezing UI
-            sign_thread = threading.Thread(target=self._run_zsign_thread, args=(cmd, temp_unsigned_ipa_path, output_ipa_path), daemon=True)
-            sign_thread.start()
-
-        except Exception as e:
-            messagebox.showerror("Repackage Failed", f"Could not create temporary IPA file:\n{e}\n\n{traceback.format_exc()}")
-            self.status_var.set("Repackage failed.")
-            if os.path.exists(temp_unsigned_ipa_path):
-                try: os.remove(temp_unsigned_ipa_path)
-                except OSError: pass
-
-    def _run_zsign_thread(self, cmd, temp_unsigned_ipa_path, output_ipa_path):
-        zsign_error = None
-        stdout_log = ""
-        stderr_log = ""
-        try:
-            # Need a callback that can be called from the thread safely
-            log_callback = lambda msg: self.root.after(0, self._update_log, msg)
-
-            log_callback("Running zsign process...\n")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            stdout_log = result.stdout
-            stderr_log = result.stderr
-            log_callback(f"zsign process completed.\n")
-            if stdout_log: log_callback(f"zsign Output:\n{stdout_log}\n")
-            if stderr_log: log_callback(f"zsign Errors/Warnings:\n{stderr_log}\n") # Log stderr even if successful
-
-        except subprocess.CalledProcessError as e:
-            zsign_error = e
-            stdout_log = e.stdout
-            stderr_log = e.stderr
-            log_callback(f"ERROR: zsign failed with exit code {e.returncode}\n")
-            if stdout_log: log_callback(f"zsign Output:\n{stdout_log}\n")
-            if stderr_log: log_callback(f"zsign Error Output:\n{stderr_log}\n")
-
-        except FileNotFoundError:
-            zsign_error = FileNotFoundError(f"zsign command not found at path: {cmd[0]}")
-            log_callback(f"ERROR: {zsign_error}\n")
-
-        except Exception as e:
-            zsign_error = e
-            log_callback(f"ERROR: Failed to run zsign - {e}\n{traceback.format_exc()}\n")
-            traceback.print_exc()
-        finally:
-            # Schedule completion on main thread
-            self.root.after(0, self._zsign_complete, zsign_error, temp_unsigned_ipa_path, output_ipa_path, stdout_log, stderr_log)
-
-
-    def _zsign_complete(self, error, temp_path, output_path, stdout_log, stderr_log):
-         # Runs on main thread
-        if self.progress_window and self.progress_window.winfo_exists():
-            self.progress_window.destroy()
-            self.progress_window = None
-            self.log_text_widget = None
-
-        if error:
-            if isinstance(error, subprocess.CalledProcessError):
-                messagebox.showerror("Signing Failed", f"zsign failed (exit code {error.returncode}).\n\nError:\n{stderr_log}\n\nCheck logs for details.")
-            else:
-                 messagebox.showerror("Signing Error", f"Failed to execute zsign command:\n{error}")
-            self.status_var.set("Signing failed.")
-            self._log(f"Temporary unsigned IPA kept at: {temp_path}") # Keep temp file if signing fails
-        else:
-            messagebox.showinfo("Signing Successful", f"Signed IPA saved to:\n{output_path}")
-            self.status_var.set("Signed repackage complete.")
-            try:
-                if os.path.exists(temp_path): os.remove(temp_path) # Clean up temp file on success
-            except OSError as e:
-                 self._log(f"Warning: Could not remove temporary file {temp_path}: {e}")
-
-    def show_credits(self):
-        title = "Credits"; message = ("ZodaciOS - Developer\n\nhttps://github.com/ZodaciOS - My github account\nhttps://github.com/ZodaciOS/AppShield - the repo of this script\n\nPlease follow me & star the repo. Thanks!"); messagebox.showinfo(title, message)
-
-    def show_getting_started(self):
-        win = tk.Toplevel(self.root); win.title("Getting Started"); win_width = 500; win_height = 250; win.geometry(f"{win_width}x{win_height}"); win.configure(bg="#2E2E2E"); win.resizable(False, False); win.transient(self.root); win.grab_set()
-        self.root.update_idletasks(); main_win_x = self.root.winfo_x(); main_win_y = self.root.winfo_y(); main_win_width = self.root.winfo_width(); main_win_height = self.root.winfo_height(); center_x = main_win_x + (main_win_width // 2) - (win_width // 2); center_y = main_win_y + (main_win_height // 2) - (win_height // 2); win.geometry(f"+{center_x}+{center_y}")
-        instructions = "AppShield is a standard .ipa analyzer, and here is how to use it:\n\n1. Download the .ipa file you would like to analyze.\n2. In AppShield, tap \"Browse...\" at the top.\n3. Select the .ipa file and tap \"Open\".\n4. Wait for the analysis (progress window will show).\n5. Explore the findings and details using the tabs and file tree.";
-        text_widget = tk.Text(win, wrap="word", bg="#1E1E1E", fg="#D4D4D4", font=self.default_font, padx=10, pady=10, bd=0, highlightthickness=0); text_widget.pack(fill="both", expand=True, padx=10, pady=(10, 0)); text_widget.insert("1.0", instructions); text_widget.config(state="disabled")
-        close_button = ttk.Button(win, text="Close", command=win.destroy, style="TButton"); close_button.pack(pady=10)
+    def repackage_signed_ipa(self):
+        messagebox.showinfo("Not Implemented", "Signed repackaging requires external tools (like zsign) and is not implemented in this version.")
+        self.status_var.set("Signed repackage requires external tools.")
 
     def open_temp_folder(self):
         if self.current_analyzer and hasattr(self.current_analyzer, 'tmpdir') and os.path.exists(self.current_analyzer.tmpdir):
@@ -1141,26 +806,22 @@ class AppUI:
         else: messagebox.showinfo("Info", "No analysis is currently active (no temporary folder to open)."); self.status_var.set("No temp folder to open.")
 
     def expand_collapse_all(self, treeview, expand=True):
-        if not treeview.get_children(): return # Don't do anything if tree is empty
-        for item in treeview.get_children():
-            treeview.item(item, open=expand)
-            # Recursive call only needed for file tree if deep expansion is desired
-            if treeview == self.file_tree and expand:
-                self._expand_all_children(treeview, item)
-            elif treeview == self.file_tree and not expand: # Collapse children too
-                 self._collapse_all_children(treeview, item)
+         if not treeview.get_children(): return
+         for item in treeview.get_children():
+             treeview.item(item, open=expand)
+             if treeview == self.file_tree: # Recursive only needed for file tree
+                 if expand: self._expand_all_children(treeview, item)
+                 else: self._collapse_all_children(treeview, item) # Ensure children collapse
 
     def _expand_all_children(self, treeview, item):
-         if treeview.get_children(item): # If it's a folder
+         if treeview.get_children(item):
              treeview.item(item, open=True)
-             for child in treeview.get_children(item):
-                 self._expand_all_children(treeview, child) # Recurse
+             for child in treeview.get_children(item): self._expand_all_children(treeview, child)
 
     def _collapse_all_children(self, treeview, item):
-         if treeview.get_children(item): # If it's a folder
+         if treeview.get_children(item):
              treeview.item(item, open=False)
-             for child in treeview.get_children(item):
-                 self._collapse_all_children(treeview, child) # Recurse
+             for child in treeview.get_children(item): self._collapse_all_children(treeview, child)
 
     def generate_summary_report(self):
         if not self.analyzer_findings: messagebox.showinfo("Info", "No findings to generate a report from."); return
@@ -1173,45 +834,83 @@ class AppUI:
         report_content += f"Risk Score: {self.analyzer_details.get('risk_score', 'N/A')}\n"
         report_content += f"Scanned At: {self.analyzer_details.get('scanned_at', 'N/A')}\n\n"
         report_content += f"Key Findings:\n{'-'*20}\n"
-        # Prioritize certain categories
-        priority_cats = ["Error", "Injection", "Tampering", "Security", "Suspicious", "Anti-Debug", "Network", "Privacy", "Entitlement"]
+        priority_cats = ["Error", "Injection", "Tampering", "Security", "Suspicious", "Anti-Debug", "Network", "Privacy", "Entitlement", "Keychain", "Binary Size", "Binary", "Sandbox", "Files", "Permission", "Provision", "Info", "App"]
         findings_by_cat = {}
         for cat, val in self.analyzer_findings: findings_by_cat.setdefault(cat, []).append(val)
-        
         for cat in priority_cats:
             if cat in findings_by_cat:
                 report_content += f"\n[{cat}]\n"
-                for val in findings_by_cat[cat][:5]: # Limit to 5 per category for summary
-                    report_content += f"- {val}\n"
+                for val in findings_by_cat[cat][:5]: report_content += f"- {val}\n"
                 if len(findings_by_cat[cat]) > 5: report_content += "- ... (and more)\n"
-        
         self.show_text_viewer("SummaryReport.txt", content_override=report_content, title_prefix="Report")
 
     def show_entitlement_explorer(self):
-         # Basic descriptions - could be expanded significantly
         descriptions = {
-             "get-task-allow": "Allows other processes (like debuggers) to attach. HIGH RISK if true in production builds.",
-             "com.apple.security.app-sandbox": "Indicates if the app runs in the sandbox. Should be TRUE unless there's a very specific reason.",
-             "com.apple.security.cs.allow-jit": "Allows Just-In-Time compilation. Can be abused.",
-             "com.apple.security.cs.disable-library-validation": "Disables checks ensuring loaded libraries are signed by Apple or the same team. HIGH RISK.",
-             "com.apple.security.cs.allow-unsigned-executable-memory": "Allows writing and executing unsigned code in memory. HIGH RISK.",
-             "com.apple.developer.networking.networkextension": "Allows creating system-level network extensions (e.g., VPN content filters). Requires special permission.",
-             "com.apple.developer.kernel-extension": "Allows loading kernel extensions. Extremely rare and requires special permission.",
-             "application-identifier": "App ID including Team ID prefix. Should match Bundle ID.",
-             "keychain-access-groups": "Defines which keychain items the app can access. Wildcards (*) can be risky.",
-             "com.apple.developer.associated-domains": "Used for Universal Links and Handoff.",
-             "com.apple.developer.icloud-container-identifiers": "Enables iCloud Key-Value or CloudKit storage.",
-             "com.apple.developer.networking.vpn": "Needed for VPN client apps.",
-             "aps-environment": "Indicates Push Notification configuration ('development' or 'production').",
+             "App Sandbox": {"com.apple.security.app-sandbox": "Enables the App Sandbox. Should generally be TRUE."},
+             "Debugging": {"get-task-allow": "Allows debuggers/other processes to attach. HIGH RISK if TRUE in production."},
+             "Code Signing": {
+                 "com.apple.security.cs.allow-jit": "Allows Just-In-Time compilation (e.g., for JavaScript). Can be abused.",
+                 "com.apple.security.cs.allow-unsigned-executable-memory": "Allows writing+executing unsigned code in memory. HIGH RISK.",
+                 "com.apple.security.cs.disable-library-validation": "Disables checks ensuring loaded libraries are signed by Apple/same team. HIGH RISK.",
+                 "com.apple.security.cs.disable-executable-page-protection": "Disables Data Execution Prevention (DEP/NX). HIGH RISK.",
+                 "com.apple.security.cs.debugger": "Allows the app to act as a debugger (requires special certificate)."
+             },
+             "Data Access": {
+                 "com.apple.developer.contacts.notes": "Allows accessing the notes field in contacts.",
+                 "com.apple.developer.healthkit": "Allows accessing HealthKit data.",
+                 "com.apple.developer.healthkit.access": "(Deprecated) Older HealthKit access.",
+                 "com.apple.developer.photos.library.add": "Allows adding assets to the photo library.",
+                 "com.apple.security.personal-information.location-always": "(Deprecated) Older location access.",
+                 "com.apple.security.personal-information.photos-library": "(Deprecated) Older photos access."
+             },
+             "Networking": {
+                 "com.apple.developer.networking.networkextension": "Allows creating system-level network extensions (VPN, content filters).",
+                 "com.apple.developer.networking.vpn.configuration": "Allows managing VPN configurations.",
+                 "com.apple.security.network.client": "Allows making outgoing network connections.",
+                 "com.apple.security.network.server": "Allows listening for incoming network connections."
+             },
+             "App Services": {
+                 "aps-environment": "Configures Push Notifications ('development' or 'production').",
+                 "com.apple.developer.associated-domains": "Used for Universal Links, Handoff, Shared Web Credentials.",
+                 "com.apple.developer.icloud-container-identifiers": "Enables iCloud Key-Value or CloudKit storage.",
+                 "com.apple.developer.icloud-services": "Specifies iCloud services used.",
+                 "com.apple.developer.in-app-payments": "Enables Apple Pay.",
+                 "com.apple.developer.siri": "Allows integration with SiriKit.",
+                 "com.apple.developer.pass-type-identifiers": "Defines Wallet pass types the app can interact with."
+             },
+             "Hardware/Device": {
+                 "com.apple.developer.devicecheck.appattest-environment": "Enables DeviceCheck App Attest service.",
+                 "com.apple.developer.nfc.readersession.formats": "Allows reading NFC tags.",
+                 "com.apple.developer.homekit": "Allows accessing HomeKit devices."
+             },
+             "System/Private (Suspicious/High Risk)": {
+                 "com.apple.private.security.no-container": "Disables containerization (rare, potentially dangerous).",
+                 "com.apple.private.skip-library-validation": "Similar to cs.disable-library-validation. HIGH RISK.",
+                 "platform-application": "Indicates a system-level application.",
+                 "com.apple.developer.kernel-extension": "Allows loading kernel extensions. Extremely rare & restricted.",
+                 "com.apple.private.*": "Any entitlement starting with this prefix is private and potentially risky."
+             },
+             "Other Common": {
+                "application-identifier": "App ID including Team ID prefix.",
+                "keychain-access-groups": "Defines keychain items accessible. Wildcards (*) can be risky.",
+                "com.apple.developer.team-identifier": "The developer Team ID.",
+                "beta-reports-active": "Enables TestFlight crash reporting."
+             }
         }
         content = "Common iOS Entitlements & Risks:\n" + "="*30 + "\n\n"
-        for key in sorted(descriptions.keys()):
-             content += f"'{key}':\n- {descriptions[key]}\n\n"
-        
+        for category, ents in descriptions.items():
+            content += f"--- {category} ---\n"
+            for key, desc in sorted(ents.items()):
+                 content += f"'{key}':\n- {desc}\n\n"
         self.show_text_viewer("EntitlementExplorer.txt", content_override=content, title_prefix="Entitlements")
 
     def toggle_always_warn(self):
-        self.warned_about_modifications = False # Reset the flag
+        self.warned_about_modifications = not self.warned_about_modifications
+        status = "OFF" if self.warned_about_modifications else "ON"
+        messagebox.showinfo("Settings", f"Signature modification warning is now {status}.")
+
+    def reset_edit_warning(self): # Renamed for clarity
+        self.warned_about_modifications = False
         messagebox.showinfo("Settings", "Signature warning will now show again on the next file edit.")
 
     def lookup_hash_vt(self):
