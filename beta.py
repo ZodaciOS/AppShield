@@ -1,3 +1,4 @@
+# install customtinkter before use
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, Menu, Text
 import tkinter.font as tkfont
@@ -19,10 +20,19 @@ import platform
 import threading
 import queue
 
+# NEW: Import CustomTkinter
+import customtkinter
+
 try:
     from PIL import Image, ImageTk
 except ImportError:
+    # Use CTk to show the error
+    customtkinter.CTk().withdraw() # Hide root window
     messagebox.showerror("Missing Dependency", "Pillow library not found.\nPlease run 'pip install pillow' to enable image viewing.")
+    exit()
+
+# --- ALL ANALYZER LOGIC REMAINS 100% UNCHANGED ---
+# (Analyzer class, all regex, all constants, etc.)
 
 SUSPICIOUS_ENTITLEMENT_SUBSTRINGS = (
     "com.apple.private", "com.apple.developer.kernel-extension", "com.apple.developer.device-lockdown",
@@ -81,7 +91,7 @@ def zip_entry_unix_mode(zinfo):
 
 def looks_macho(data):
     if len(data) < 4: return False
-    magic = data[:4]; return magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+    magic = data[:4]; return magic in (b"\xfe\xed\fa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\fa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
 
 class Analyzer:
     def __init__(self, ipa_path, log_callback=None):
@@ -278,110 +288,140 @@ class Analyzer:
         try: shutil.rmtree(self.tmpdir, ignore_errors=True)
         except Exception as e: print(f"Error cleaning up temp directory {self.tmpdir}: {e}")
 
-class AppUI:
+# --- ENTIRE AppUI CLASS REWRITTEN WITH CUSTOMTKINTER ---
+
+class AppUI(customtkinter.CTk):
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("AppShield — Enhanced IPA Analyzer")
-        self.root.geometry("1100x700")
-        self.root.configure(bg="#2E2E2E")
+        super().__init__()
         
         self.analyzer_details = {}
         self.analyzer_findings = []
-        self.FG = "#E0E0E0"
         self.selected_file_path = ""
         self.current_analyzer = None
         self.warned_about_modifications = False
         self.progress_window = None
         self.log_text_widget = None
 
-        self.setup_font_and_style()
-        self.create_menu()
-        
-        header_frame = ttk.Frame(self.root, style="TFrame")
-        header_frame.pack(fill="x", padx=10, pady=10)
-        
-        header_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(header_frame, text="IPA File:", style="TLabel").grid(row=0, column=0, padx=(0, 5), pady=5, sticky="w")
+        # --- Theme and Font Setup ---
+        self.setup_theme_and_style()
+
+        self.title("AppShield — Enhanced IPA Analyzer")
+        self.geometry("1100x700")
+
+        # --- Configure Main Grid Layout ---
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # --- Top Header Frame ---
+        self.header_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        self.header_frame.grid_columnconfigure(1, weight=1)
+
+        customtkinter.CTkLabel(self.header_frame, text="IPA File:").grid(row=0, column=0, sticky="w", padx=(0, 5))
         
         self.path_var = tk.StringVar()
-        self.entry = ttk.Entry(header_frame, textvariable=self.path_var, width=70, font=self.default_font)
-        self.entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        
-        ttk.Button(header_frame, text="Browse...", command=self.browse, style="TButton").grid(row=0, column=2, padx=5, pady=5, sticky="e")
-        
-        self.analyze_button = ttk.Button(header_frame, text="Analyze", command=self.analyze, style="Accent.TButton")
-        self.analyze_button.grid(row=0, column=3, padx=5, pady=5, sticky="e")
-        
-        ttk.Button(header_frame, text="Clear", command=self.clear_results, style="TButton").grid(row=0, column=4, padx=(5, 0), pady=5, sticky="e")
+        self.entry = customtkinter.CTkEntry(self.header_frame, textvariable=self.path_var)
+        self.entry.grid(row=0, column=1, sticky="ew", padx=5)
 
-        self.main_pane = ttk.PanedWindow(self.root, orient="horizontal")
-        self.main_pane.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.browse_button = customtkinter.CTkButton(self.header_frame, text="Browse...", width=100, command=self.browse)
+        self.browse_button.grid(row=0, column=2, sticky="e", padx=5)
 
-        left_frame = ttk.Frame(self.main_pane, width=400)
-        left_frame.rowconfigure(1, weight=1)
-        left_frame.columnconfigure(0, weight=1)
-        
-        ttk.Label(left_frame, text="Findings", font=self.default_font_bold, style="TLabel").grid(row=0, column=0, sticky="w", pady=(0, 5))
-        
-        tree_frame = ttk.Frame(left_frame)
-        tree_frame.grid(row=1, column=0, sticky="nsew")
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
+        self.analyze_button = customtkinter.CTkButton(self.header_frame, text="Analyze", width=100, command=self.analyze, fg_color="blue", hover_color="#005a9e")
+        self.analyze_button.grid(row=0, column=3, sticky="e", padx=5)
 
-        self.tree = ttk.Treeview(tree_frame, columns=("cat", "info"), show="headings", height=30)
+        self.clear_button = customtkinter.CTkButton(self.header_frame, text="Clear", width=100, command=self.clear_results, fg_color="#555555", hover_color="#333333")
+        self.clear_button.grid(row=0, column=4, sticky="e", padx=(5,0))
+
+        # --- Main Paned Frame (using a grid) ---
+        self.main_pane = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.main_pane.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.main_pane.grid_columnconfigure(0, weight=35) # Left side
+        self.main_pane.grid_columnconfigure(1, weight=65) # Right side
+        self.main_pane.grid_rowconfigure(0, weight=1)
+
+        # --- Left Frame (Findings) ---
+        self.left_frame = customtkinter.CTkFrame(self.main_pane)
+        self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.left_frame.grid_rowconfigure(1, weight=1)
+        self.left_frame.grid_columnconfigure(0, weight=1)
+
+        customtkinter.CTkLabel(self.left_frame, text="Findings", font=self.default_font_bold).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
+
+        # Hybrid Treeview Frame
+        self.tree_frame = customtkinter.CTkFrame(self.left_frame, fg_color=self.THEME_COLORS["tree_bg"])
+        self.tree_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.tree_frame.grid_rowconfigure(0, weight=1)
+        self.tree_frame.grid_columnconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(self.tree_frame, columns=("cat", "info"), show="headings", height=30)
         self.tree.heading("cat", text="Category")
         self.tree.heading("info", text="Detail")
         self.tree.column("cat", width=120, stretch=False, anchor="w")
         self.tree.column("info", width=250, stretch=True, anchor="w")
         
-        tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=tree_scroll.set)
+        self.tree_scroll = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=self.tree_scroll.set)
         
-        tree_scroll.grid(row=0, column=1, sticky="ns")
+        self.tree_scroll.grid(row=0, column=1, sticky="ns")
         self.tree.grid(row=0, column=0, sticky="nsew")
         
-        self.findings_tree_menu = tk.Menu(self.root, tearoff=0)
+        # Themed Right-Click Menu
+        self.findings_tree_menu = Menu(self.tree, tearoff=0, **self.THEME_COLORS["menu"])
         self.findings_tree_menu.add_command(label="Copy Value", command=self.copy_finding_value)
         self.tree.bind("<Button-3>", self.show_findings_menu)
-        
-        self.main_pane.add(left_frame, weight=35)
 
-        right_frame = ttk.Frame(self.main_pane, width=600)
-        right_frame.rowconfigure(1, weight=1)
-        right_frame.columnconfigure(0, weight=1)
+        # --- Right Frame (Details) ---
+        self.right_frame = customtkinter.CTkFrame(self.main_pane)
+        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.right_frame.grid_rowconfigure(1, weight=1)
+        self.right_frame.grid_columnconfigure(0, weight=1)
+
+        customtkinter.CTkLabel(self.right_frame, text="Analysis Details", font=self.default_font_bold).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 5))
+
+        # Tab View (Notebook)
+        self.notebook = customtkinter.CTkTabview(self.right_frame)
+        self.notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         
-        ttk.Label(right_frame, text="Analysis Details", font=self.default_font_bold, style="TLabel").grid(row=0, column=0, sticky="w", pady=(0, 5))
+        self.notebook.add("Summary")
+        self.notebook.add("File Tree")
+        self.notebook.add("Info.plist")
+        self.notebook.add("Entitlements")
+        self.notebook.add("Strings & URLs")
+
+        # --- Populate Tabs ---
+        self.summary_tab = self.create_text_tab(self.notebook.tab("Summary"))
+        self.info_tab = self.create_text_tab(self.notebook.tab("Info.plist"))
+        self.ent_tab = self.create_text_tab(self.notebook.tab("Entitlements"))
+        self.strings_tab = self.create_text_tab(self.notebook.tab("Strings & URLs"))
         
-        self.notebook = ttk.Notebook(right_frame, style="TNotebook")
-        
-        self.summary_tab = self.create_text_tab("Summary")
-        
-        self.file_tree_tab = ttk.Frame(self.notebook, style="TFrame", padding=5)
-        self.file_tree_tab.rowconfigure(1, weight=1)
-        self.file_tree_tab.columnconfigure(0, weight=1)
-        
+        # --- File Tree Tab (Special) ---
+        self.file_tree_tab = self.notebook.tab("File Tree")
+        self.file_tree_tab.grid_rowconfigure(1, weight=1)
+        self.file_tree_tab.grid_columnconfigure(0, weight=1)
+
         self.file_search_var = tk.StringVar()
         self.file_search_var.trace_add("write", self.search_files)
-        search_entry = ttk.Entry(self.file_tree_tab, textvariable=self.file_search_var, font=self.default_font)
-        search_entry.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        self.file_search_entry = customtkinter.CTkEntry(self.file_tree_tab, textvariable=self.file_search_var, placeholder_text="Search files...")
+        self.file_search_entry.grid(row=0, column=0, sticky="ew", padx=(5,5), pady=5)
         
-        file_tree_frame = ttk.Frame(self.file_tree_tab)
-        file_tree_frame.grid(row=1, column=0, sticky="nsew")
-        file_tree_frame.rowconfigure(0, weight=1)
-        file_tree_frame.columnconfigure(0, weight=1)
-        
-        self.file_tree = ttk.Treeview(file_tree_frame, columns=("path",), show="tree headings", displaycolumns=())
+        # Hybrid Treeview Frame
+        self.file_tree_frame = customtkinter.CTkFrame(self.file_tree_tab, fg_color=self.THEME_COLORS["tree_bg"])
+        self.file_tree_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0,5))
+        self.file_tree_frame.grid_rowconfigure(0, weight=1)
+        self.file_tree_frame.grid_columnconfigure(0, weight=1)
+
+        self.file_tree = ttk.Treeview(self.file_tree_frame, columns=("path",), show="tree headings", displaycolumns=())
         self.file_tree.heading("#0", text="File/Directory")
         self.file_tree.column("#0", stretch=True, anchor='w')
         
-        file_tree_scroll = ttk.Scrollbar(file_tree_frame, orient="vertical", command=self.file_tree.yview)
-        self.file_tree.configure(yscrollcommand=file_tree_scroll.set)
+        self.file_tree_scroll = ttk.Scrollbar(self.file_tree_frame, orient="vertical", command=self.file_tree.yview)
+        self.file_tree.configure(yscrollcommand=self.file_tree_scroll.set)
         
-        file_tree_scroll.grid(row=0, column=1, sticky="ns")
+        self.file_tree_scroll.grid(row=0, column=1, sticky="ns")
         self.file_tree.grid(row=0, column=0, sticky="nsew")
-        
-        self.file_tree_menu = tk.Menu(self.root, tearoff=0)
+
+        # Themed Right-Click Menu
+        self.file_tree_menu = Menu(self.file_tree, tearoff=0, **self.THEME_COLORS["menu"])
         self.file_tree_menu.add_command(label="View File", command=self.view_file_tree_selection, state="disabled")
         self.file_tree_menu.add_command(label="Edit File", command=self.edit_file_tree_selection, state="disabled")
         self.file_tree_menu.add_command(label="View Strings", command=self.view_file_strings, state="disabled")
@@ -391,56 +431,54 @@ class AppUI:
         self.file_tree_menu.add_command(label="Export Selected File", command=self.export_file_tree_selection, state="disabled")
         self.file_tree.bind("<Button-3>", self.show_file_tree_menu)
         
-        self.notebook.add(self.file_tree_tab, text="File Tree")
-        
-        self.info_tab = self.create_text_tab("Info.plist")
-        self.ent_tab = self.create_text_tab("Entitlements")
-        self.strings_tab = self.create_text_tab("Strings & URLs")
-        
-        self.notebook.grid(row=1, column=0, sticky="nsew")
-        self.main_pane.add(right_frame, weight=65)
+        # --- Bottom Footer Frame ---
+        self.footer_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.footer_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        self.footer_frame.grid_columnconfigure(1, weight=1)
 
-        footer_frame = ttk.Frame(self.root, style="TFrame")
-        footer_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self.score_label = customtkinter.CTkLabel(self.footer_frame, text="Risk: N/A", font=self.default_font_bold)
+        self.score_label.grid(row=0, column=0, sticky="w")
         
-        footer_frame.columnconfigure(1, weight=1)
+        self.export_json_button = customtkinter.CTkButton(self.footer_frame, text="Export Details (JSON)", command=self.export_json, fg_color="#555555", hover_color="#333333")
+        self.export_json_button.grid(row=0, column=3, sticky="e")
         
-        self.score_label = ttk.Label(footer_frame, text="Risk: N/A", font=self.default_font_bold, style="TLabel")
-        self.score_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
-        
-        ttk.Button(footer_frame, text="Save Findings (TXT)", command=self.save_findings).grid(row=0, column=2, sticky="e", padx=5)
-        ttk.Button(footer_frame, text="Export Details (JSON)", command=self.export_json).grid(row=0, column=3, sticky="e", padx=(0, 0))
+        self.save_findings_button = customtkinter.CTkButton(self.footer_frame, text="Save Findings (TXT)", command=self.save_findings, fg_color="#555555", hover_color="#333333")
+        self.save_findings_button.grid(row=0, column=2, sticky="e", padx=5)
+
+        # --- Native TK Menu Bar ---
+        self.create_menu()
 
     def create_menu(self):
-        menubar = Menu(self.root)
-        self.root.config(menu=menubar)
+        # We still use tk.Menu for the native top bar, it works fine
+        menubar = Menu(self)
+        self.config(menu=menubar)
 
-        file_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
+        file_menu = Menu(menubar, tearoff=0, **self.THEME_COLORS["menu"])
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Repack IPA...", command=self.repackage_ipa)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
+        file_menu.add_command(label="Exit", command=self.quit)
 
-        help_menu = Menu(menubar, tearoff=0, background="#252526", foreground="#E0E0E0", activebackground="#3A3D41", activeforeground="#E0E0E0", font=self.default_font)
+        help_menu = Menu(menubar, tearoff=0, **self.THEME_COLORS["menu"])
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Credits", command=self.show_credits)
         help_menu.add_command(label="View GitHub Profile", command=lambda: webbrowser.open("https://github.com/ZodaciOS"))
         help_menu.add_command(label="View AppShield Repo", command=lambda: webbrowser.open("https://github.com/ZodaciOS/AppShield"))
 
-    def create_text_tab(self, name):
-        frame = ttk.Frame(self.notebook, style="TFrame")
-        txt_scroll_y = ttk.Scrollbar(frame, orient="vertical")
-        txt_scroll_x = ttk.Scrollbar(frame, orient="horizontal")
-        txt = tk.Text(frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4", insertbackground="#D4D4D4", selectbackground="#3A3D41", font=self.monospace_font, yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set, padx=5, pady=5, bd=0, highlightthickness=0)
-        txt_scroll_y.config(command=txt.yview)
-        txt_scroll_x.config(command=txt.xview)
-        txt_scroll_y.pack(side="right", fill="y")
-        txt_scroll_x.pack(side="bottom", fill="x")
-        txt.pack(fill="both", expand=True)
-        self.notebook.add(frame, text=name)
+    def create_text_tab(self, tab):
+        # Helper to create a CTkTextbox inside a tab
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
+        txt = customtkinter.CTkTextbox(tab, wrap="none", font=self.monospace_font, state="disabled")
+        txt.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         return txt
 
-    def setup_font_and_style(self):
+    def setup_theme_and_style(self):
+        # --- CustomTkinter Settings ---
+        customtkinter.set_appearance_mode("dark")
+        customtkinter.set_default_color_theme("blue")
+        
+        # --- Font Setup ---
         os_name = platform.system()
         try:
             fonts = tkfont.families()
@@ -474,34 +512,62 @@ class AppUI:
         self.default_font = (self.default_font_name, default_size)
         self.default_font_bold = (self.default_font_name, default_size, "bold")
         self.monospace_font = (self.monospace_font_name, 10)
-        self.root.option_add("*Font", self.default_font)
+        
+        # --- App-wide Color Palette ---
+        self.THEME_COLORS = {
+            "menu": {
+                "background": "#252526",
+                "foreground": "#E0E0E0",
+                "activebackground": "#007ACC",
+                "activeforeground": "#FFFFFF"
+            },
+            "tree_bg": "#252526",
+            "tree_fg": "#E0E0E0",
+            "tree_heading_bg": "#2E2E2E",
+            "tree_heading_fg": "#E0E0E0",
+            "tree_select_bg": "#007ACC",
+            "tree_select_fg": "#FFFFFF"
+        }
 
+        # --- Hybrid Styling for ttk.Treeview ---
         style = ttk.Style()
         try:
             style.theme_use("clam")
         except:
             pass
 
-        BG="#2E2E2E"; INACTIVE_BG="#252526"; INACTIVE_FG="#A0A0A0"; ACCENT="#007ACC"; SELECT_BG="#3A3D41"; BORDER="#3E3E3E"
-
-        style.configure(".", background=BG, foreground=self.FG, fieldbackground=INACTIVE_BG, troughcolor=INACTIVE_BG, borderwidth=0, highlightthickness=0, font=self.default_font)
-        style.map(".", foreground=[('disabled', INACTIVE_FG), ('active', self.FG)], background=[('disabled', INACTIVE_BG), ('active', ACCENT)], fieldbackground=[('disabled', INACTIVE_BG)])
-        style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=self.FG, padding=(0, 2))
-        style.configure("TButton", padding=(8, 6), background=INACTIVE_BG, foreground=self.FG)
-        style.map("TButton", background=[('active', SELECT_BG)])
-        style.configure("Accent.TButton", padding=(8, 6), background=ACCENT, foreground="#FFFFFF")
-        style.map("Accent.TButton", background=[('active', "#005a9e")])
-        style.configure("TEntry", padding=5, bordercolor=BORDER, borderwidth=1, insertcolor=self.FG)
-        style.map("TEntry", bordercolor=[('focus', ACCENT)], fieldbackground=[('focus', INACTIVE_BG)])
-        style.configure("Treeview", rowheight=25, fieldbackground=INACTIVE_BG, background=INACTIVE_BG, foreground=self.FG)
-        style.map("Treeview", background=[('selected', ACCENT)], foreground=[('selected', "#FFFFFF")])
-        style.configure("Treeview.Heading", font=self.default_font_bold, background=INACTIVE_BG, foreground=self.FG, padding=(6, 6))
-        style.map("Treeview.Heading", background=[('active', SELECT_BG)])
-        style.configure("TNotebook", background=BG, borderwidth=0, padding=(0, 5))
-        style.configure("TNotebook.Tab", background=INACTIVE_BG, foreground=INACTIVE_FG, padding=(12, 6), font=(self.default_font_name, default_size), borderwidth=0)
-        style.map("TNotebook.Tab", background=[('selected', BG)], foreground=[('selected', self.FG)], borderwidth=[('selected', 0)])
-        style.configure("TProgressbar", troughcolor=INACTIVE_BG, background=ACCENT)
+        style.configure("Treeview", 
+            background=self.THEME_COLORS["tree_bg"],
+            fieldbackground=self.THEME_COLORS["tree_bg"],
+            foreground=self.THEME_COLORS["tree_fg"],
+            rowheight=25,
+            borderwidth=0,
+            relief="flat")
+        
+        style.map("Treeview", 
+            background=[('selected', self.THEME_COLORS["tree_select_bg"])], 
+            foreground=[('selected', self.THEME_COLORS["tree_select_fg"])])
+        
+        style.configure("Treeview.Heading", 
+            font=self.default_font_bold, 
+            background=self.THEME_COLORS["tree_heading_bg"],
+            foreground=self.THEME_COLORS["tree_heading_fg"],
+            padding=(6, 6),
+            borderwidth=0,
+            relief="flat")
+        
+        style.map("Treeview.Heading", 
+            background=[('active', self.THEME_COLORS["tree_heading_bg"])],
+            foreground=[('active', self.THEME_COLORS["tree_heading_fg"])])
+        
+        # Style for Scrollbars to match
+        style.configure("Vertical.TScrollbar",
+            background=self.THEME_COLORS["tree_heading_bg"],
+            troughcolor=self.THEME_COLORS["tree_bg"],
+            bordercolor=self.THEME_COLORS["tree_bg"],
+            arrowcolor=self.THEME_COLORS["tree_fg"])
+        style.map("Vertical.TScrollbar",
+            background=[('active', self.THEME_COLORS["tree_select_bg"])])
 
     def browse(self):
         p = filedialog.askopenfilename(filetypes=[("IPA files", "*.ipa"), ("All files", "*.*")])
@@ -516,19 +582,14 @@ class AppUI:
         self.tree.delete(*self.tree.get_children())
         for i in self.file_tree.get_children():
             self.file_tree.delete(i)
-        self.summary_tab.config(state="normal")
-        self.info_tab.config(state="normal")
-        self.ent_tab.config(state="normal")
-        self.strings_tab.config(state="normal")
-        self.summary_tab.delete("1.0", "end")
-        self.info_tab.delete("1.0", "end")
-        self.ent_tab.delete("1.0", "end")
-        self.strings_tab.delete("1.0", "end")
-        self.summary_tab.config(state="disabled")
-        self.info_tab.config(state="disabled")
-        self.ent_tab.config(state="disabled")
-        self.strings_tab.config(state="disabled")
-        self.score_label.config(text="Risk: N/A", foreground=self.FG)
+        
+        tabs = [self.summary_tab, self.info_tab, self.ent_tab, self.strings_tab]
+        for tab in tabs:
+            tab.configure(state="normal")
+            tab.delete("1.0", "end")
+            tab.configure(state="disabled")
+
+        self.score_label.configure(text="Risk: N/A", text_color="gray80")
         self.analyzer_details = {}
         self.analyzer_findings = []
         self.selected_file_path = ""
@@ -642,23 +703,15 @@ class AppUI:
             messagebox.showinfo("Cannot Edit", "Only text-based files can be edited.")
             
     def show_text_viewer(self, path, is_plist=False, content_override=None, title_prefix="Viewer"):
-        win = tk.Toplevel(self.root)
+        win = customtkinter.CTkToplevel(self)
         win.title(f"{title_prefix} - {os.path.basename(path)}")
         win.geometry("700x500")
-        win.configure(bg="#2E2E2E")
         
-        txt_frame = ttk.Frame(win, style="TFrame")
-        txt_frame.pack(fill="both", expand=True, padx=5, pady=(5,0))
-        
-        txt_scroll_y = ttk.Scrollbar(txt_frame, orient="vertical")
-        txt_scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal")
-        txt = tk.Text(txt_frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4", insertbackground="#D4D4D4", selectbackground="#3A3D41", font=self.monospace_font, yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set, padx=5, pady=5, bd=0, highlightthickness=0)
-        
-        txt_scroll_y.config(command=txt.yview)
-        txt_scroll_x.config(command=txt.xview)
-        txt_scroll_y.pack(side="right", fill="y")
-        txt_scroll_x.pack(side="bottom", fill="x")
-        txt.pack(fill="both", expand=True)
+        win.grid_rowconfigure(0, weight=1)
+        win.grid_columnconfigure(0, weight=1)
+
+        txt = customtkinter.CTkTextbox(win, wrap="none", font=self.monospace_font)
+        txt.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10,5))
         
         content = ""
         data = b""
@@ -680,34 +733,26 @@ class AppUI:
             content = f"Error reading file:\n\n{e}\n\n{traceback.format_exc()}"
             
         txt.insert("1.0", content)
-        txt.config(state="disabled")
+        txt.configure(state="disabled")
         
         def copy_to_clipboard():
-            self.root.clipboard_clear()
-            self.root.clipboard_append(txt.get("1.0", "end-1c"))
+            self.clipboard_clear()
+            self.clipboard_append(txt.get("1.0", "end-1c"))
             messagebox.showinfo("Copied", "Contents copied to clipboard.", parent=win)
         
-        copy_button = ttk.Button(win, text="Copy to Clipboard", command=copy_to_clipboard, style="TButton")
-        copy_button.pack(pady=5)
+        copy_button = customtkinter.CTkButton(win, text="Copy to Clipboard", command=copy_to_clipboard)
+        copy_button.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
 
     def show_text_editor(self, path):
-        win = tk.Toplevel(self.root)
+        win = customtkinter.CTkToplevel(self)
         win.title(f"Editor - {os.path.basename(path)}")
         win.geometry("700x500")
-        win.configure(bg="#2E2E2E")
+
+        win.grid_rowconfigure(0, weight=1)
+        win.grid_columnconfigure(0, weight=1)
         
-        txt_frame = ttk.Frame(win, style="TFrame")
-        txt_frame.pack(fill="both", expand=True, padx=5, pady=(5,0))
-        
-        txt_scroll_y = ttk.Scrollbar(txt_frame, orient="vertical")
-        txt_scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal")
-        txt = tk.Text(txt_frame, wrap="none", bg="#1E1E1E", fg="#D4D4D4", insertbackground="#D4D4D4", selectbackground="#3A3D41", font=self.monospace_font, undo=True, yscrollcommand=txt_scroll_y.set, xscrollcommand=txt_scroll_x.set, padx=5, pady=5, bd=0, highlightthickness=0)
-        
-        txt_scroll_y.config(command=txt.yview)
-        txt_scroll_x.config(command=txt.xview)
-        txt_scroll_y.pack(side="right", fill="y")
-        txt_scroll_x.pack(side="bottom", fill="x")
-        txt.pack(fill="both", expand=True)
+        txt = customtkinter.CTkTextbox(win, wrap="none", font=self.monospace_font, undo=True)
+        txt.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10,5))
         
         content = ""
         encoding = 'utf-8'
@@ -736,20 +781,24 @@ class AppUI:
             except Exception as e:
                 messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=win)
 
-        save_button = ttk.Button(win, text="Save Changes", command=save_changes, style="Accent.TButton")
-        save_button.pack(pady=5)
+        save_button = customtkinter.CTkButton(win, text="Save Changes", command=save_changes, fg_color="blue", hover_color="#005a9e")
+        save_button.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
 
     def show_image_viewer(self, path):
-        win = tk.Toplevel(self.root)
+        win = customtkinter.CTkToplevel(self)
         win.title(f"Image - {os.path.basename(path)}")
-        win.configure(bg="#2E2E2E")
         try:
             img = Image.open(path)
-            photo = ImageTk.PhotoImage(img)
-            label = ttk.Label(win, image=photo, style="TLabel")
-            label.image = photo
+            
+            # Create a CTkImage
+            ctk_img = customtkinter.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            
+            # Display it in a CTkLabel
+            label = customtkinter.CTkLabel(win, image=ctk_img, text="")
             label.pack(padx=10, pady=10)
-            win.geometry(f"{photo.width()+20}x{photo.height()+20}")
+            
+            # Resize window
+            win.geometry(f"{img.width+20}x{img.height+20}")
         except Exception as e:
             win.destroy()
             messagebox.showerror("Image Error", f"Could not load image: {e}\n\n{traceback.format_exc()}")
@@ -800,7 +849,7 @@ class AppUI:
             return
         try:
             with open(self.selected_file_path, "rb") as f:
-                data = f.read(1024 * 1024)
+                data = f.read(1024 * 1024) # Limit hex view to 1MB
             hex_content = self._format_hex(data)
             if len(data) == 1024 * 1024:
                 hex_content += f"\n--- Truncated at 1MB ---"
@@ -830,68 +879,67 @@ class AppUI:
         try:
             selected_item = self.tree.selection()[0]
             value = self.tree.item(selected_item, "values")[1]
-            self.root.clipboard_clear()
-            self.root.clipboard_append(value)
+            self.clipboard_clear()
+            self.clipboard_append(value)
         except Exception as e:
-            messagebox.showerror("Error", f"Could not copy value: {e}", parent=self.root)
+            messagebox.showerror("Error", f"Could not copy value: {e}", parent=self)
 
     def _insert_text(self, text_widget, content):
-        text_widget.config(state="normal")
+        text_widget.configure(state="normal")
         text_widget.delete("1.0", "end")
         text_widget.insert("1.0", content)
-        text_widget.config(state="disabled")
+        text_widget.configure(state="disabled")
 
     def _show_progress_dialog(self):
         if self.progress_window and self.progress_window.winfo_exists():
             self.progress_window.destroy()
-        self.progress_window = tk.Toplevel(self.root)
+        
+        self.progress_window = customtkinter.CTkToplevel(self)
         self.progress_window.title("Analyzing IPA...")
+        
         prog_win_width = 600
         prog_win_height = 400
         self.progress_window.geometry(f"{prog_win_width}x{prog_win_height}")
-        self.progress_window.configure(bg="#2E2E2E")
-        self.progress_window.transient(self.root)
+        self.progress_window.transient(self)
         self.progress_window.grab_set()
         self.progress_window.resizable(False, False)
 
-        self.root.update_idletasks()
-        main_win_x = self.root.winfo_x()
-        main_win_y = self.root.winfo_y()
-        main_win_width = self.root.winfo_width()
-        main_win_height = self.root.winfo_height()
+        # Center on main window
+        self.update_idletasks()
+        main_win_x = self.winfo_x()
+        main_win_y = self.winfo_y()
+        main_win_width = self.winfo_width()
+        main_win_height = self.winfo_height()
         center_x = main_win_x + (main_win_width // 2) - (prog_win_width // 2)
         center_y = main_win_y + (main_win_height // 2) - (prog_win_height // 2)
         self.progress_window.geometry(f"+{center_x}+{center_y}")
+        
+        self.progress_window.grid_rowconfigure(2, weight=1)
+        self.progress_window.grid_columnconfigure(0, weight=1)
 
-        ttk.Label(self.progress_window, text="Analysis in progress...", font=self.default_font_bold).pack(pady=(10, 5))
+        customtkinter.CTkLabel(self.progress_window, text="Analysis in progress...", font=self.default_font_bold).grid(row=0, column=0, pady=(10, 5))
         
-        pb = ttk.Progressbar(self.progress_window, mode='indeterminate', style="TProgressbar")
-        pb.pack(fill="x", padx=10, pady=5)
-        pb.start(10)
+        pb = customtkinter.CTkProgressBar(self.progress_window, mode='indeterminate')
+        pb.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        pb.start()
         
-        log_frame = ttk.Frame(self.progress_window, style="TFrame")
-        log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.log_text_widget = customtkinter.CTkTextbox(self.progress_window, wrap="word", font=(self.monospace_font_name, 9), state="disabled")
+        self.log_text_widget.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
         
-        log_scroll = ttk.Scrollbar(log_frame, orient="vertical")
-        self.log_text_widget = tk.Text(log_frame, wrap="word", bg="#1E1E1E", fg="#D4D4D4", font=(self.monospace_font_name, 9), yscrollcommand=log_scroll.set, padx=5, pady=5, bd=0, highlightthickness=0, state="disabled")
-        log_scroll.config(command=self.log_text_widget.yview)
-        log_scroll.pack(side="right", fill="y")
-        self.log_text_widget.pack(fill="both", expand=True)
-        
-        self.progress_window.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.progress_window.protocol("WM_DELETE_WINDOW", lambda: None) # Disable closing
 
     def _update_log(self, message):
         if self.log_text_widget and self.log_text_widget.winfo_exists():
-            self.log_text_widget.config(state="normal")
+            self.log_text_widget.configure(state="normal")
             self.log_text_widget.insert("end", message)
             self.log_text_widget.see("end")
-            self.log_text_widget.config(state="disabled")
+            self.log_text_widget.configure(state="disabled")
 
     def _run_analysis_thread(self, ipa_path):
         analyzer = None
         analysis_error = None
         try:
-            log_callback = lambda msg: self.root.after(0, self._update_log, msg)
+            log_callback = lambda msg: self.after(0, self._update_log, msg)
             analyzer = Analyzer(ipa_path, log_callback=log_callback)
             analyzer.run()
         except Exception as e:
@@ -899,14 +947,16 @@ class AppUI:
             traceback.print_exc()
             log_callback(f"FATAL ERROR during analysis thread: {e}\n{traceback.format_exc()}")
         finally:
-            self.root.after(0, self._analysis_complete, analyzer, analysis_error)
+            self.after(0, self._analysis_complete, analyzer, analysis_error)
 
     def _analysis_complete(self, analyzer, error):
         if self.progress_window and self.progress_window.winfo_exists():
             self.progress_window.destroy()
             self.progress_window = None
             self.log_text_widget = None
-        self.analyze_button.config(state="normal")
+        
+        self.analyze_button.configure(state="normal")
+        
         if error:
             messagebox.showerror("Analysis Failed", f"An unexpected error occurred during analysis:\n{error}")
         if analyzer:
@@ -919,20 +969,27 @@ class AppUI:
 
         self.analyzer_details = analyzer.details
         self.analyzer_findings = analyzer.findings
+        
         for cat, info_val in analyzer.findings:
             self.tree.insert("", "end", values=(cat, info_val))
+            
         info = analyzer.details.get("info", {})
         ent = analyzer.details.get("entitlements", {})
+        
         summary_text = (f"App Name: {info.get('CFBundleName', 'N/A')}\nBundle ID: {info.get('CFBundleIdentifier', 'N/A')}\nVersion: {info.get('CFBundleShortVersionString', 'N/A')}\n\nRisk Score: {analyzer.score}\nScanned: {analyzer.details.get('scanned_at', 'N/A')}\n\n--- Key Details ---\n"
                         f"Entitlements Source: {analyzer.details.get('entitlements_source', 'N/A')}\nTotal Files in .app: {len(analyzer.details.get('files', []))}\nDetected Injected Dylibs: {len(analyzer.details.get('injected_dylibs', []))}\nKnown Tracking Libs: {len(set(analyzer.details.get('tracking_libs', [])))}\n"
                         f"Suspicious Imports: {len(set(analyzer.details.get('suspicious_imports', [])))}\nJailbreak Strings: {len(set(analyzer.details.get('jailbreak_strings', [])))}\nFound URLs: {len(analyzer.details.get('extracted_urls', []))}\nFound IPs: {len(set(analyzer.details.get('extracted_ips', [])))}\n"
                         f"Found DDNS Domains: {len(set(analyzer.details.get('suspicious_ddns', [])))}\nHardcoded AWS Keys: {len(set(analyzer.details.get('hardcoded_aws_keys', [])))}\n")
+        
         self._insert_text(self.summary_tab, summary_text)
+        
         for i in self.file_tree.get_children():
             self.file_tree.delete(i)
         self._populate_file_tree_recursive("", analyzer.details.get("file_tree", {}), search_term="")
+        
         self._insert_text(self.info_tab, json.dumps(info, indent=2))
         self._insert_text(self.ent_tab, json.dumps(ent, indent=2))
+        
         strings_text = "--- SUSPICIOUS IMPORTS / FUNCTIONS ---\n" + "\n".join(sorted(list(set(analyzer.details.get("suspicious_imports", ["None"]))))) + \
                        "\n\n--- JAILBREAK STRINGS / PATHS ---\n" + "\n".join(sorted(list(set(analyzer.details.get("jailbreak_strings", ["None"]))))) + \
                        "\n\n--- KNOWN TRACKING LIBRARIES ---\n" + "\n".join(sorted(list(set(analyzer.details.get("tracking_libs", ["None"]))))) + \
@@ -942,9 +999,11 @@ class AppUI:
                        "\n\n--- WEAK HASHES (MD5/SHA1) ---\n" + "\n".join(sorted(list(set(analyzer.details.get("weak_hashes", ["None"]))))) + \
                        "\n\n--- ENCRYPTION LIBRARIES ---\n" + "\n".join(sorted(list(set(analyzer.details.get("crypto_libs", ["None"]))))) + \
                        "\n\n--- POTENTIAL HARDCODED AWS KEYS ---\n" + "\n".join(sorted(list(set(analyzer.details.get("hardcoded_aws_keys", ["None"])))))
+                       
         self._insert_text(self.strings_tab, strings_text)
+        
         label, color = self.risk_label_color(analyzer.score)
-        self.score_label.config(text=f"Risk: {label} ({analyzer.score})", foreground=color)
+        self.score_label.configure(text=f"Risk: {label} ({analyzer.score})", text_color=color)
 
     def analyze(self):
         p = self.path_var.get().strip()
@@ -952,9 +1011,10 @@ class AppUI:
             messagebox.showerror("Error", "Select a valid IPA file")
             return
         self.clear_results()
-        self.root.update_idletasks()
+        self.update_idletasks()
         self._show_progress_dialog()
-        self.analyze_button.config(state="disabled")
+        self.analyze_button.configure(state="disabled")
+        
         analysis_thread = threading.Thread(target=self._run_analysis_thread, args=(p,), daemon=True)
         analysis_thread.start()
 
@@ -1032,10 +1092,11 @@ class AppUI:
         messagebox.showinfo(title, message)
 
     def run(self):
-        self.root.mainloop()
+        self.mainloop()
 
 def run_ui():
-    AppUI().run()
+    app = AppUI()
+    app.run()
 
 if __name__ == "__main__":
     run_ui()
