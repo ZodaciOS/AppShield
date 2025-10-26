@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "AppShield"
+version = "0.1.0"
+authors = [
+  { name="ZodaciOS", email="zodacios@gmail.com" },
+]
+description = "An enhanced IPA analyzer with GUI"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Topic :: Software Development :: Build Tools",
+    "Environment :: Win32 (MS Windows)",
+    "Framework :: Tkinter",
+]
+dependencies = [
+    "Pillow>=9.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/ZodaciOS/AppShield"
+"Bug Tracker" = "https://github.com/ZodaciOS/AppShield/issues"
+
+[project.scripts]
+appshield-gui = "appshield.main:run_ui"
