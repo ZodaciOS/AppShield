@@ -1,4 +1,3 @@
-# do not use this it is beta
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, Menu, Text
 import tkinter.font as tkfont
