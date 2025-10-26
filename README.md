@@ -21,6 +21,8 @@ Tap the Download icon. Hovering your mouse over it should say "Download Raw File
 
 Then, tap open file.
 
+Beta.py is the beta, which has new features. Some features are missing, so don't use.
+
 # Features
 
 - Reads app entitlements and detects debuggable applications (`get-task-allow`)
