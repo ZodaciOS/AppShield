@@ -1006,5 +1006,8 @@ class AppUI:
     def run(self):
         self.root.mainloop()
 
-if __name__ == "__main__":
+def run_ui():
     AppUI().run()
+
+if __name__ == "__main__":
+    run_ui()
