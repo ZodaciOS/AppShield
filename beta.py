@@ -62,36 +62,27 @@ IP_REGEX = re.compile(rb'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
 AWS_KEY_REGEX = re.compile(rb'AKIA[0-9A-Z]{16}')
 
 def read_plist_bytes(data):
-    try:
-        return plistlib.loads(data)
+    try: return plistlib.loads(data)
     except Exception:
         try:
-            s_idx = data.find(b"<?xml")
-            e_idx = data.find(b"</plist>")
-            if s_idx != -1 and e_idx != -1:
-                return plistlib.loads(data[s_idx : e_idx + 8])
-        except Exception:
-            return None
+            s_idx = data.find(b"<?xml"); e_idx = data.find(b"</plist>")
+            if s_idx != -1 and e_idx != -1: return plistlib.loads(data[s_idx : e_idx + 8])
+        except Exception: return None
     return None
 
 def sha256_of_file(path):
-    h = hashlib.sha256()
+    h = hashlib.sha256();
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
+        for chunk in iter(lambda: f.read(8192), b""): h.update(chunk)
     return h.hexdigest()
 
 def zip_entry_unix_mode(zinfo):
-    try:
-        return (zinfo.external_attr >> 16) & 0xFFFF
-    except Exception:
-        return 0
+    try: return (zinfo.external_attr >> 16) & 0xFFFF
+    except Exception: return 0
 
 def looks_macho(data):
-    if len(data) < 4:
-        return False
-    magic = data[:4]
-    return magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+    if len(data) < 4: return False
+    magic = data[:4]; return magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
 
 class Analyzer:
     def __init__(self, ipa_path, log_callback=None):
@@ -432,9 +423,12 @@ class AppUI:
             fonts = tkfont.families()
             font_found = False
             font_prefs = ["Inter"]
-            if os_name == "Windows": font_prefs.extend(["Segoe UI", "Arial"])
-            elif os_name == "Darwin": font_prefs.extend(["San Francisco", "Helvetica Neue", "Helvetica", "Arial"])
-            else: font_prefs.extend(["Helvetica", "Arial"])
+            if os_name == "Windows":
+                font_prefs.extend(["Segoe UI", "Arial"])
+            elif os_name == "Darwin":
+                font_prefs.extend(["San Francisco", "Helvetica Neue", "Helvetica", "Arial"])
+            else:
+                font_prefs.extend(["Helvetica", "Arial"])
             for font_name in font_prefs:
                  if font_name in fonts:
                      self.default_font_name = font_name
@@ -686,8 +680,14 @@ class AppUI:
         content = ""
         encoding = 'utf-8'
         try:
-            with open(path, "r", encoding=encoding, errors='replace') as f:
-                content = f.read()
+            # Try UTF-8 first, fall back to latin-1 if needed
+            try:
+                with open(path, "r", encoding=encoding, errors='strict') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                encoding = 'latin-1' # Fallback encoding
+                with open(path, "r", encoding=encoding, errors='replace') as f:
+                    content = f.read()
         except Exception as e:
             messagebox.showerror("Read Error", f"Could not read file {os.path.basename(path)}:\n{e}", parent=win)
             win.destroy()
@@ -698,6 +698,7 @@ class AppUI:
         def save_changes():
             try:
                 new_content = txt.get("1.0", "end-1c")
+                # Use the encoding determined during reading
                 with open(path, "w", encoding=encoding, errors='replace') as f:
                     f.write(new_content)
                 messagebox.showinfo("Saved", f"{os.path.basename(path)} saved successfully.", parent=win)
@@ -715,8 +716,8 @@ class AppUI:
         try:
             img = Image.open(path)
             photo = ImageTk.PhotoImage(img)
-            label = ttk.Label(win, image=photo, style="TLabel") # Use TLabel style
-            label.image = photo
+            label = ttk.Label(win, image=photo, style="TLabel") # Use style for consistency
+            label.image = photo # Keep reference
             label.pack(padx=10, pady=10)
             win.geometry(f"{photo.width()+20}x{photo.height()+20}")
         except Exception as e:
@@ -724,17 +725,25 @@ class AppUI:
             messagebox.showerror("Image Error", f"Could not load image: {e}\n\n{traceback.format_exc()}")
             
     def _get_file_strings(self, data):
-        min_len = 4; strings = ""; current = ""; printable_chars = set(bytes(string.printable, 'ascii'))
+        min_len = 4
+        strings = ""
+        current = ""
+        printable_chars = set(bytes(string.printable, 'ascii'))
         for byte in data:
-            if byte in printable_chars: current += chr(byte)
+            if byte in printable_chars:
+                current += chr(byte)
             else:
-                if len(current) >= min_len: strings += current + "\n"
+                if len(current) >= min_len:
+                    strings += current + "\n"
                 current = ""
-        if len(current) >= min_len: strings += current
+        if len(current) >= min_len:
+            strings += current
         return strings
         
     def _format_hex(self, data):
-        out = ""; ascii_part = ""; hex_part = ""
+        out = ""
+        ascii_part = ""
+        hex_part = ""
         for i in range(0, len(data), 16):
             chunk = data[i:i+16]
             offset = f"{i:08x}"
@@ -744,34 +753,45 @@ class AppUI:
         return out
         
     def view_file_strings(self):
-        if not self.selected_file_path: return
+        if not self.selected_file_path:
+            return
         try:
-            with open(self.selected_file_path, "rb") as f: data = f.read()
-            strings = self._get_file_strings(data);
-            if not strings: strings = "--- No printable strings found ---"
+            with open(self.selected_file_path, "rb") as f:
+                data = f.read()
+            strings = self._get_file_strings(data)
+            if not strings:
+                strings = "--- No printable strings found ---"
             self.show_text_viewer(self.selected_file_path, content_override=strings, title_prefix="Strings")
-        except Exception as e: messagebox.showerror("Error Reading Strings", str(e))
+        except Exception as e:
+            messagebox.showerror("Error Reading Strings", str(e))
 
     def view_file_hex(self):
-        if not self.selected_file_path: return
+        if not self.selected_file_path:
+            return
         try:
-            with open(self.selected_file_path, "rb") as f: data = f.read(1024 * 1024)
+            with open(self.selected_file_path, "rb") as f:
+                data = f.read(1024 * 1024) # Limit hex view to 1MB
             hex_content = self._format_hex(data)
-            if len(data) == 1024 * 1024: hex_content += f"\n--- Truncated at 1MB ---"
+            if len(data) == 1024 * 1024:
+                hex_content += f"\n--- Truncated at 1MB ---"
             self.show_text_viewer(self.selected_file_path, content_override=hex_content, title_prefix="Hex")
-        except Exception as e: messagebox.showerror("Error Reading File", str(e))
+        except Exception as e:
+            messagebox.showerror("Error Reading File", str(e))
             
     def get_file_hash(self):
-        if not self.selected_file_path: return
+        if not self.selected_file_path:
+            return
         try:
             h = sha256_of_file(self.selected_file_path)
             content = f"File: {os.path.basename(self.selected_file_path)}\n\nSHA256: {h}"
             self.show_text_viewer(self.selected_file_path, content_override=content, title_prefix="SHA256 Hash")
-        except Exception as e: messagebox.showerror("Error Hashing File", str(e))
+        except Exception as e:
+            messagebox.showerror("Error Hashing File", str(e))
             
     def show_findings_menu(self, event):
         iid = self.tree.identify_row(event.y)
-        if not iid: return
+        if not iid:
+            return
         self.tree.focus(iid)
         self.tree.selection_set(iid)
         self.findings_tree_menu.post(event.x_root, event.y_root)
@@ -796,22 +816,40 @@ class AppUI:
             self.progress_window.destroy()
         self.progress_window = tk.Toplevel(self.root)
         self.progress_window.title("Analyzing IPA...")
-        self.progress_window.geometry("600x400")
+        # Fixed size for progress dialog
+        prog_win_width = 600
+        prog_win_height = 400
+        self.progress_window.geometry(f"{prog_win_width}x{prog_win_height}")
         self.progress_window.configure(bg="#2E2E2E")
         self.progress_window.transient(self.root)
         self.progress_window.grab_set()
         self.progress_window.resizable(False, False)
+
+        # Calculate position to center it on the main window
+        self.root.update_idletasks() # Ensure main window size is up-to-date
+        main_win_x = self.root.winfo_x()
+        main_win_y = self.root.winfo_y()
+        main_win_width = self.root.winfo_width()
+        main_win_height = self.root.winfo_height()
+        center_x = main_win_x + (main_win_width // 2) - (prog_win_width // 2)
+        center_y = main_win_y + (main_win_height // 2) - (prog_win_height // 2)
+        self.progress_window.geometry(f"+{center_x}+{center_y}") # Set position
+
         ttk.Label(self.progress_window, text="Analysis in progress...", font=self.default_font_bold).pack(pady=(10, 5))
+        
         pb = ttk.Progressbar(self.progress_window, mode='indeterminate', style="TProgressbar")
         pb.pack(fill="x", padx=10, pady=5)
         pb.start(10)
+        
         log_frame = ttk.Frame(self.progress_window, style="TFrame")
         log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical")
         self.log_text_widget = tk.Text(log_frame, wrap="word", bg="#1E1E1E", fg="#D4D4D4", font=("Courier", 9), yscrollcommand=log_scroll.set, padx=5, pady=5, bd=0, highlightthickness=0, state="disabled")
         log_scroll.config(command=self.log_text_widget.yview)
         log_scroll.pack(side="right", fill="y")
         self.log_text_widget.pack(fill="both", expand=True)
+        
         self.progress_window.protocol("WM_DELETE_WINDOW", lambda: None)
 
     def _update_log(self, message):
